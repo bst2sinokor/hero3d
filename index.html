@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>그린파워 vs 웅동 — 지반 처리 비교 3D 애니메이션</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothic', sans-serif; }
+  body {
+    background: linear-gradient(160deg, #4a8fbf 0%, #7bb5d8 50%, #a8d0e6 100%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 40px 20px; color: #0b1622;
+  }
+  header {
+    text-align: center; margin-bottom: 48px;
+  }
+  h1 {
+    font-size: clamp(28px, 4vw, 44px); font-weight: 900; letter-spacing: -0.02em; margin-bottom: 14px;
+    color: #0b1622;
+  }
+  header p {
+    font-size: clamp(15px, 1.6vw, 18px); color: #2c3e50; opacity: 0.85; max-width: 720px;
+    line-height: 1.6;
+  }
+  .cards {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 24px; width: 100%; max-width: 900px;
+  }
+  .card {
+    background: rgba(255,255,255,0.94); border-radius: 20px; padding: 32px 28px;
+    box-shadow: 0 14px 40px rgba(0,0,0,0.18);
+    text-decoration: none; color: inherit;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.24);
+  }
+  .card .tag {
+    display: inline-block; font-size: 12px; font-weight: 800; letter-spacing: 0.05em;
+    padding: 4px 10px; border-radius: 20px; align-self: flex-start;
+  }
+  .card.ungdong .tag { background: #dbeafe; color: #1e3a8a; }
+  .card.green .tag { background: #d1fae5; color: #065f46; }
+  .card h2 { font-size: 22px; font-weight: 800; }
+  .card p { font-size: 14px; color: #4a5568; line-height: 1.55; }
+  .card .scenes {
+    margin-top: 8px; font-size: 12px; color: #718096;
+  }
+  .cta {
+    margin-top: 10px; font-weight: 700; color: #2563eb;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .card.green .cta { color: #059669; }
+  footer {
+    margin-top: 60px; font-size: 12px; color: #4a5568; opacity: 0.75;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>그린파워 vs 웅동 — 지반 처리 비교</h1>
+    <p>부산그린파워 산업폐기물 매립 부지와 웅동2단계 항만배후부지의 <strong>지반 안정화 방식 차이</strong>를 시네마틱 3D로 대조합니다.</p>
+  </header>
+
+  <div class="cards">
+    <a href="hero3d.html" class="card ungdong">
+      <span class="tag">웅동 시퀀스</span>
+      <h2>웅동 2단계 항만배후부지</h2>
+      <p>선행재하·PBD 압밀 방식. 바다를 준설토로 매립하고 PBD로 물을 빼내 다지는 표준 공법.</p>
+      <div class="scenes">씬 1~5 · 바다 → 준설토 매립 → PBD·집수정 → 성토 → 압밀·집수</div>
+      <span class="cta">▶ 애니메이션 재생</span>
+    </a>
+    <a href="hero3d_green.html" class="card green">
+      <span class="tag">그린파워 시퀀스</span>
+      <h2>부산그린파워 매립 부지</h2>
+      <p>차수성 위생매립 방식. 라이너로 폐기물을 감싸는 구조, 하중에 의한 침하·오염수 유출까지.</p>
+      <div class="scenes">씬 6~13 · 부지 굴착 → 진공압밀 → 라이너 → 폐기물 매립 → 오염수 · 하중 · 침하 · 누출</div>
+      <span class="cta">▶ 애니메이션 재생</span>
+    </a>
+  </div>
+
+  <footer>
+    <p>Three.js r0.184 · GSAP 3.12.5 · PBR textures from <a href="https://polyhaven.com" style="color:inherit;">Polyhaven</a></p>
+  </footer>
+</body>
+</html>
