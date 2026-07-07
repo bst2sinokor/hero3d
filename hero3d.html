@@ -953,10 +953,14 @@ function frame() {
 frame();
 
 // ---------- 리사이즈 ----------
+// 반응형 카메라: 좁은 화면(모바일 세로)에서 수직 FOV를 확대해 수평 시야각 최소값(60°) 보장
+const BASE_FOV = 38, MIN_HFOV = 60;
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
+  const reqVFov = 2 * Math.atan(Math.tan(MIN_HFOV * Math.PI / 360) / camera.aspect) * 180 / Math.PI;
+  camera.fov = Math.max(BASE_FOV, reqVFov);
   camera.updateProjectionMatrix();
 }
 addEventListener('resize', resize);
