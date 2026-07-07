@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>히어로 3D — 웅동 / 그린파워</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #dcebf7; }
+  #stage3d { position: fixed; inset: 0; }
+  #stage3d canvas { display: block; width: 100%; height: 100%; }
+  #hud { position: absolute; left: 0; right: 0; top: 30px; text-align: center; pointer-events: none; z-index: 3; }
+  #hud .cap {
+    display: inline-block; padding: 14px 30px; border-radius: 14px;
+    background: rgba(12,22,34,0.55); backdrop-filter: blur(6px);
+    color: #fff; font-size: clamp(20px, 2.4vw, 34px); font-weight: 800; letter-spacing: -0.01em;
+    opacity: 0; transform: translateY(12px);
+  }
+  #hud .cap .hl { color: #5ee0b0; }
+  #controls { position: absolute; right: 22px; bottom: 18px; z-index: 5; display: flex; gap: 8px; }
+  #controls button {
+    font-family: inherit; font-size: 15px; font-weight: 700; color: #0b1622;
+    background: #fff; border: none; padding: 10px 16px; border-radius: 10px; cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+  }
+  #controls button:hover { background: #eef3f7; }
+  #scenelabel {
+    position: absolute; left: 22px; bottom: 22px; z-index: 5;
+    font-family: inherit; font-size: 14px; font-weight: 700; color: #0b1622;
+    background: rgba(255,255,255,0.82); padding: 7px 14px; border-radius: 9px;
+  }
+  #callout { position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; transition: opacity 0.5s ease; width: 100%; height: 100%; }
+  #coLine { stroke: #fff; stroke-width: 2.5; stroke-dasharray: 7 7; }
+  #coRing { fill: rgba(255,210,63,0.12); stroke: #ffd23f; stroke-width: 3.5; }
+  #lenswrap {
+    position: absolute; left: 34px; bottom: 70px; z-index: 4;
+    opacity: 0; transition: opacity 0.6s ease; pointer-events: none;
+  }
+  #lens { width: 270px; height: 270px; border-radius: 50%; border: 5px solid #fff;
+    box-shadow: 0 10px 34px rgba(0,0,0,0.5); display: block; }
+  #lenscap { text-align: center; color: #fff; font-size: 14px; font-weight: 700; margin-top: 10px;
+    text-shadow: 0 1px 5px rgba(0,0,0,0.7); }
+  #levelTag { position: absolute; z-index: 5; opacity: 0; transition: opacity 0.4s;
+    transform: translate(6px, -50%); background: rgba(12,22,34,0.72); color: #ffd23f;
+    font-size: 18px; font-weight: 800; padding: 4px 11px; border-radius: 8px;
+    border: 2px solid #ffd23f; white-space: nowrap; }
+  /* 지층 명칭 라벨 — 각 층 좌측 앞모서리에 배치 */
+  .layerTag { position: absolute; z-index: 5; opacity: 0; transition: opacity 0.5s ease;
+    transform: translate(calc(-100% - 18px), -50%); white-space: nowrap;
+    font-family: inherit; font-size: 14px; font-weight: 800; color: #0b1622;
+    background: rgba(255,255,255,0.92); padding: 6px 12px; border-radius: 8px;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.3); }
+  .layerTag small { font-weight: 700; color: #5a6675; font-size: 12px; margin-left: 3px; }
+  .layerTag::after { content: ''; position: absolute; right: -18px; top: 50%;
+    width: 18px; height: 2px; background: rgba(255,255,255,0.92); transform: translateY(-50%); }
+  .layerTag::before { content: ''; position: absolute; right: -18px; top: 50%;
+    width: 8px; height: 8px; border-radius: 50%; background: #ffd23f;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.92); transform: translate(50%, -50%); }
+  /* 집수정 라벨 — 대상 위쪽에 두고 아래로 지시선 연결 */
+  .layerTag.down { transform: translate(-50%, calc(-100% - 18px)); }
+  .layerTag.down::after { right: auto; left: 50%; top: auto; bottom: -18px;
+    width: 2px; height: 18px; transform: translateX(-50%); }
+  .layerTag.down::before { right: auto; left: 50%; top: auto; bottom: -18px;
+    transform: translate(-50%, 50%); }
+</style>
+</head>
+<body>
+  <div id="stage3d"></div>
+  <div id="scenelabel">씬 1 · 바다</div>
+  <div id="controls">
+    <button id="prev">◀ 이전 씬</button>
+    <button id="pause">⏸ 일시정지</button>
+    <button id="next">다음 씬 ▶</button>
+    <button id="replay">⟲ 다시 보기</button>
+  </div>
+  <svg id="callout"><line id="coLine"></line><circle id="coRing"></circle></svg>
+  <div id="lenswrap"><canvas id="lens"></canvas><div id="lenscap">흙 속 — 입자 재정렬 · 간극수 PBD 배출</div></div>
+  <div id="levelTag"></div>
+  <div class="layerTag" id="ltFill">바다</div>
+  <div class="layerTag" id="ltClay">연약점토층</div>
+  <div class="layerTag" id="ltRock">기반암</div>
+  <div class="layerTag down" id="ltWell">집수정</div>
+  <div id="hud"><div class="cap" id="cap"></div></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
+    }
+  }
+  </script>
+  <!-- file:// 에서도 동작하도록 인라인 모듈 + https CDN import -->
+  <script type="module">
+// ================================================
+// 히어로 3D — 스타일라이즈드 (Three.js r184 + GSAP)
+// 웅동(선행재하·PBD 압밀) → 그린파워(차수성 매립)
+// 씬 단위 체크포인트로 확장. 현재: 씬 1 — 바다.
+// ================================================
+import * as THREE from 'three';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+
+const gsap = window.gsap;
+const stageEl = document.getElementById('stage3d');
+const cap = document.getElementById('cap');
+
+// ---------- 월드 좌표 약속 ----------
+// 해수면 y = 0. 길이축 = X, 깊이축(카메라 쪽) = Z, 위 = Y.
+const SEA = 0;
+
+// ---------- 렌더러 ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.localClippingEnabled = true;   // 성토 클리핑(아래→위 성장)
+stageEl.appendChild(renderer.domElement);
+
+// ---------- 씬 / 안개 ----------
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xdcebf7, 5200, 11000);  // 먼 거리만 살짝(블록은 또렷)
+
+// 하늘 — 세로 그라데이션 배경
+function skyTexture() {
+  const c = document.createElement('canvas');
+  c.width = 4; c.height = 512;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0.00, '#bcdcf5');
+  grad.addColorStop(0.55, '#d8ecf9');
+  grad.addColorStop(1.00, '#eef6fb');
+  g.fillStyle = grad; g.fillRect(0, 0, 4, 512);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+scene.background = skyTexture();
+
+// HDRI 환경광(IBL) — 실제 하늘로 재질 반사·음영을 사실적으로 (배경은 그라데이션 유지)
+new RGBELoader().load(
+  'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r170/examples/textures/equirectangular/venice_sunset_1k.hdr',
+  (hdr) => { const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromEquirectangular(hdr).texture; scene.environmentIntensity = 0.55; hdr.dispose(); pm.dispose(); }
+);
+
+// 실제 PBR 텍스처 (PolyHaven, CORS 허용) — diff+normal+rough
+const texLoader = new THREE.TextureLoader();
+const PH = 'https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k';
+function loadPBR(asset, rx, ry, opts = {}) {
+  const url = m => `${PH}/${asset}/${asset}_${m}_1k.jpg`;
+  const diff = texLoader.load(url('diff')); diff.colorSpace = THREE.SRGBColorSpace;
+  const nor = texLoader.load(url('nor_gl'));
+  const rough = texLoader.load(url('rough'));
+  [diff, nor, rough].forEach(t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry); t.anisotropy = 4; });
+  return new THREE.MeshStandardMaterial({ map: diff, normalMap: nor, roughnessMap: rough, roughness: 1, metalness: 0, ...opts });
+}
+const matRock = loadPBR('rocky_terrain_02', 8, 1);
+const matSoft = loadPBR('brown_mud_dry', 8, 1);
+const matFill = loadPBR('sandy_gravel', 8, 1);
+const matSur = loadPBR('sandy_gravel', 1, 1, { color: 0xe8d6b2 });   // 성토(따뜻한 톤, 커스텀 UV)
+
+// ---------- 카메라 ----------
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 1, 12000);
+const cam = { px: 1820, py: 1120, pz: 2380, tx: 0, ty: -150, tz: 0 };  // 3/4 단면 뷰
+function applyCam() {
+  camera.position.set(cam.px, cam.py, cam.pz);
+  camera.lookAt(cam.tx, cam.ty, cam.tz);
+}
+applyCam();
+
+// ---------- 조명 ----------
+const hemi = new THREE.HemisphereLight(0xeaf4ff, 0x9c8255, 0.95);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff1d2, 1.7);
+sun.position.set(-700, 760, 520);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 100;
+sun.shadow.camera.far = 4000;
+sun.shadow.camera.left = -1800; sun.shadow.camera.right = 1800;
+sun.shadow.camera.top = 1800; sun.shadow.camera.bottom = -1800;
+sun.shadow.bias = -0.0006;
+scene.add(sun);
+scene.add(sun.target);
+
+// ---------- 태양 (코어 + 헤일로 단일 스프라이트) ----------
+function sunSprite(size) {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  rg.addColorStop(0.00, 'rgba(255,253,244,1)');   // 밝은 코어
+  rg.addColorStop(0.16, 'rgba(255,247,222,1)');
+  rg.addColorStop(0.30, 'rgba(255,233,180,0.55)'); // 따뜻한 헤일로
+  rg.addColorStop(0.62, 'rgba(255,226,165,0.16)');
+  rg.addColorStop(1.00, 'rgba(255,226,165,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 256, 256);
+  const tx = new THREE.CanvasTexture(c);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tx, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  sp.scale.set(size, size, 1);
+  return sp;
+}
+const sunPos = new THREE.Vector3(-1350, 600, -3600);
+const sunGlow = sunSprite(1700);
+sunGlow.position.copy(sunPos);
+scene.add(sunGlow);
+
+// ================================================
+//  절차적 텍스처 (단일색 금지 — 알갱이·얼룩·층리)
+// ================================================
+function rnd(a, b) { return a + Math.random() * (b - a); }
+function makeTex(draw, repeat) {
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  draw(c.getContext('2d'), 512);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+// 흙/모래 캔버스: 베이스 + 넓은 얼룩 + 무수한 알갱이 (+자갈)
+function soilCanvas(g, S, base, dark, light, pebbles) {
+  g.fillStyle = base; g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 26; i++) {          // 톤 얼룩
+    g.globalAlpha = rnd(0.05, 0.13);
+    g.fillStyle = Math.random() < 0.5 ? dark : light;
+    g.beginPath(); g.arc(rnd(0, S), rnd(0, S), rnd(40, 130), 0, 7); g.fill();
+  }
+  for (let i = 0; i < 2800; i++) {        // 알갱이
+    g.globalAlpha = rnd(0.12, 0.5);
+    g.fillStyle = Math.random() < 0.5 ? dark : light;
+    g.beginPath(); g.arc(rnd(0, S), rnd(0, S), rnd(0.6, 2.2), 0, 7); g.fill();
+  }
+  for (let i = 0; i < (pebbles || 0); i++) { // 자갈
+    g.globalAlpha = rnd(0.3, 0.6); g.fillStyle = dark;
+    g.beginPath(); g.arc(rnd(0, S), rnd(0, S), rnd(3, 7), 0, 7); g.fill();
+  }
+  g.globalAlpha = 1;
+}
+function rockCanvas(g, S) {
+  soilCanvas(g, S, '#6f6960', '#48443e', '#8d887e', 70);
+  g.strokeStyle = 'rgba(38,35,31,0.38)'; g.lineWidth = 2;   // 대각 층리
+  for (let y = -S; y < S * 2; y += rnd(26, 52)) { g.beginPath(); g.moveTo(0, y); g.lineTo(S, y + rnd(40, 95)); g.stroke(); }
+}
+const texRock = makeTex(rockCanvas, 1.6);
+const texSoft = makeTex((g, S) => soilCanvas(g, S, '#8c7c60', '#6c5d42', '#a89673', 22), 1.8);
+const texFillSide = makeTex((g, S) => soilCanvas(g, S, '#ba975c', '#916d3c', '#d8be8c', 26), 1.9);
+const texFillTop = makeTex((g, S) => soilCanvas(g, S, '#d2b67e', '#a98a52', '#ecd9ab', 12), 2.6);
+// 성토 — 밝은 사질토. 규칙적 선(벽돌 느낌) 없이 유기적 얼룩+알갱이로 자연스럽게
+const texSur = makeTex((g, S) => {
+  soilCanvas(g, S, '#d6bd8a', '#9e7d46', '#f0e0b6', 22);
+  for (let i = 0; i < 18; i++) {                  // 넓고 불규칙한 톤 얼룩
+    g.globalAlpha = rnd(0.05, 0.13);
+    g.fillStyle = Math.random() < 0.5 ? '#9c7c46' : '#efe0b6';
+    g.beginPath(); g.arc(rnd(0, S), rnd(0, S), rnd(55, 150), 0, 7); g.fill();
+  }
+  g.globalAlpha = 1;
+}, 1);
+
+// ================================================
+//  단면 다이오라마 — 부지 블록(원지반 단면이 보이는 3/4 뷰)
+//  층(아래→위): 암반 / 연약토(원지반) / 바다(수주+표면파) → 매립 fill
+//  지면 기준 GROUND = 40 (이후 모든 씬 공통)
+// ================================================
+const GROUND = 40;
+const Wd = 2400, Dp = 1400;        // 부지 가로(X) · 깊이(Z)
+const SEABED = -160;               // 원지반(연약토) 상단 = 바다 바닥
+
+// 부드러운 접지 그림자(블록을 공중이 아닌 '놓인 모형'처럼)
+function softShadowTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(128, 128, 10, 128, 128, 128);
+  rg.addColorStop(0, 'rgba(20,30,40,0.42)');
+  rg.addColorStop(0.6, 'rgba(20,30,40,0.20)');
+  rg.addColorStop(1, 'rgba(20,30,40,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 256, 256);
+  return new THREE.CanvasTexture(c);
+}
+const groundShadow = new THREE.Mesh(
+  new THREE.PlaneGeometry(Wd * 1.7, Dp * 1.9),
+  new THREE.MeshBasicMaterial({ map: softShadowTex(), transparent: true, depthWrite: false })
+);
+groundShadow.rotation.x = -Math.PI / 2;
+groundShadow.position.y = -522;
+scene.add(groundShadow);
+
+// 원지반 — 암반(firm)
+const rock = new THREE.Mesh(new THREE.BoxGeometry(Wd, 100, Dp), matRock);
+rock.position.y = -470;            // -520 ~ -420
+rock.castShadow = true; rock.receiveShadow = true;
+scene.add(rock);
+// 원지반 — 연약토(soft marine clay) : 암반보다 두껍게
+const soft = new THREE.Mesh(new THREE.BoxGeometry(Wd, 260, Dp), matSoft);
+soft.position.y = -290;            // -420 ~ -160 (상단=SEABED)
+soft.castShadow = true; soft.receiveShadow = true;
+scene.add(soft);
+
+// 바다 — 수주(water column, 단면 벽): 수심 그라데이션(아래 진한 남색→위 밝은 청색)
+const seaMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, transparent: true, opacity: 0.82, vertexColors: true });
+const colGeo = new THREE.BoxGeometry(Wd - 10, 156, Dp - 10);
+{
+  const p = colGeo.attributes.position, arr = [];
+  const cBot = new THREE.Color(0x0e3f63), cTop = new THREE.Color(0x3f9fd0), tmp = new THREE.Color();
+  for (let i = 0; i < p.count; i++) {
+    const tt = (p.getY(i) + 78) / 156;            // 0 바닥 ~ 1 상단
+    tmp.copy(cBot).lerp(cTop, tt); arr.push(tmp.r, tmp.g, tmp.b);
+  }
+  colGeo.setAttribute('color', new THREE.Float32BufferAttribute(arr, 3));
+}
+const waterCol = new THREE.Mesh(colGeo, seaMat);
+waterCol.position.y = SEABED + 78; // -160 ~ -4
+scene.add(waterCol);
+
+// 표면파 — 파고에 따라 색이 살아 움직임(정점 컬러) + 마루 거품 + 햇빛 반짝임
+const surfMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.16, metalness: 0.1, transparent: true, opacity: 0.9, vertexColors: true });
+const seaGeo = new THREE.PlaneGeometry(Wd - 10, Dp - 10, 90, 52);
+const sea = new THREE.Mesh(seaGeo, surfMat);
+sea.rotation.x = -Math.PI / 2;     // 로컬 +z → 월드 +y (파도 변위)
+sea.position.y = 0;
+scene.add(sea);
+
+// 파도 성분 (진폭/파장/속도/위상)
+const WAVES = [
+  { ax: 0.0040, az: 0.0060, a: 5.0, s: 0.9, p: 0.0 },
+  { ax: 0.0090, az: 0.0120, a: 2.6, s: 1.5, p: 1.1 },
+  { ax: 0.0160, az: 0.0200, a: 1.3, s: 2.3, p: 2.4 }
+];
+const AMP = WAVES.reduce((s, w) => s + w.a, 0);   // 최대 진폭
+const seaPos = seaGeo.attributes.position;
+const seaCol = new THREE.Float32BufferAttribute(new Float32Array(seaPos.count * 3), 3);
+seaGeo.setAttribute('color', seaCol);
+const seaBaseX = new Float32Array(seaPos.count);
+const seaBaseY = new Float32Array(seaPos.count);
+for (let i = 0; i < seaPos.count; i++) { seaBaseX[i] = seaPos.getX(i); seaBaseY[i] = seaPos.getY(i); }
+const cDeep = new THREE.Color(0x1d6699), cCrest = new THREE.Color(0x9fe0f6), cFoam = new THREE.Color(0xffffff), cw = new THREE.Color();
+function updateSea(t) {
+  if (!sea.visible) return;
+  for (let i = 0; i < seaPos.count; i++) {
+    const x = seaBaseX[i], y = seaBaseY[i];
+    let z = 0;
+    for (const w of WAVES) z += w.a * Math.sin(x * w.ax + y * w.az + w.s * t + w.p);
+    seaPos.setZ(i, z);
+    let tt = (z + AMP) / (2 * AMP);               // 골 0 ~ 마루 1
+    cw.copy(cDeep).lerp(cCrest, tt);
+    if (tt > 0.82) cw.lerp(cFoam, (tt - 0.82) / 0.18 * 0.7);  // 마루 거품
+    seaCol.setXYZ(i, cw.r, cw.g, cw.b);
+  }
+  seaPos.needsUpdate = true; seaCol.needsUpdate = true;
+  seaGeo.computeVertexNormals();
+}
+
+// 준설토 매립 fill — SEABED(원지반 위)부터 위로 차오름
+const fillH = GROUND - SEABED;     // 200
+const fillGeo = new THREE.BoxGeometry(Wd, fillH, Dp, 48, 1, 12);   // 윗면 변형(국부 침하)용 세그먼트
+fillGeo.translate(0, fillH / 2, 0);             // 피벗을 바닥으로
+const fill = new THREE.Mesh(fillGeo, matFill);
+// 침하 트로프: 윗면(로컬 y≈fillH) 정점만 성토 범위에서 내려감
+const fillPos = fillGeo.attributes.position;
+const fillTopIdx = [];
+for (let i = 0; i < fillPos.count; i++) if (Math.abs(fillPos.getY(i) - fillH) < 0.5) fillTopIdx.push(i);
+function settleBump(x) { const a = Math.abs(x); if (a <= 1000) return 1; if (a >= 1250) return 0; return 0.5 * (1 + Math.cos((a - 1000) / 250 * Math.PI)); }
+function displaceFillTop(s) {
+  for (const i of fillTopIdx) fillPos.setY(i, fillH - s * settleBump(fillPos.getX(i)));
+  fillPos.needsUpdate = true; fillGeo.computeVertexNormals();
+}
+fill.position.y = SEABED;
+fill.scale.y = 0;                               // 매립 전
+fill.castShadow = true; fill.receiveShadow = true;
+scene.add(fill);
+
+const FRONT = Dp / 2;   // 앞 절단면 z
+
+// ================================================
+//  PBD 배수재 (앞 절단면에 세로로 박힘) — 연약층까지 관입
+// ================================================
+const DN = 6, drains = [];     // PBD 6본(좌측) + 우측엔 집수정
+const DRAIN_TOP = GROUND, DRAIN_BOT = -410, dH = DRAIN_TOP - DRAIN_BOT;  // 450 (기반암 -420 직전까지 관입)
+const drainMat = new THREE.MeshStandardMaterial({ color: 0xeef3f7, roughness: 0.5 });
+const waterMat = new THREE.MeshStandardMaterial({ color: 0x2b9fd6, roughness: 0.22, transparent: true, opacity: 0.92, emissive: 0x0b3954, emissiveIntensity: 0.3 });
+const DX0 = -1040, DXSTEP = 2080 / 6, WELLX = DX0 + 6 * DXSTEP;   // 집수정 = 가장 우측 자리(+1040)
+const COLL_Y = -78;          // 집수관 깊이: 최대 침하(약 -55) 아래 → 침하 후에도 준설토층에 묻힘
+const WH = COLL_Y - DRAIN_BOT;   // PBD 물기둥 높이(바닥→집수관)
+for (let i = 0; i < DN; i++) {
+  const x = DX0 + i * DXSTEP;
+  const dg = new THREE.BoxGeometry(13, dH, 9); dg.translate(0, dH / 2, 0);   // 피벗 하단
+  const d = new THREE.Mesh(dg, drainMat);
+  d.position.set(x, DRAIN_BOT, FRONT);
+  d.scale.y = 0; d.visible = false;
+  scene.add(d);
+  // PBD 내부 물기둥 — 바닥에서 집수관까지 천천히 차오름 (흰 배수재 앞에 노출)
+  const wg = new THREE.BoxGeometry(9, WH, 9); wg.translate(0, WH / 2, 0);
+  const w = new THREE.Mesh(wg, waterMat);
+  w.position.set(x, DRAIN_BOT, FRONT + 16); w.scale.y = 0; w.visible = false;
+  scene.add(w);
+  drains.push({ d, x, grow: 0, w });
+}
+
+// 집수관(collector) — 흰색, 준설토층 내(COLL_Y)에서 모든 PBD를 집수정으로 연결
+const collMat = new THREE.MeshStandardMaterial({ color: 0xeef3f7, roughness: 0.5 });
+const collLen = WELLX - DX0 + 40;
+const collector = new THREE.Mesh(new THREE.BoxGeometry(collLen, 20, 22), collMat);
+collector.position.set((DX0 + WELLX) / 2, COLL_Y, FRONT); collector.visible = false; scene.add(collector);
+// 집수관 속 물 — 좌측(PBD)에서 우측(집수정)으로 흐름. 피벗 왼쪽
+const cwLen = WELLX - DX0;
+const cwg = new THREE.BoxGeometry(cwLen, 13, 13); cwg.translate(cwLen / 2, 0, 0);
+const collWater = new THREE.Mesh(cwg, waterMat.clone());
+collWater.position.set(DX0, COLL_Y, FRONT + 16); collWater.scale.x = 0; collWater.visible = false; scene.add(collWater);   // 흰 집수관 앞에 노출
+
+// 집수정(물탱크) — 앞 단면에 노출된 탱크. 물이 바닥→위로 차오름
+const WELL_W = 150, WELL_TOP = GROUND + 50, WELL_BOT = -255, WELL_D = 84, wellH = WELL_TOP - WELL_BOT;
+const wellGroup = new THREE.Group(); wellGroup.visible = false; scene.add(wellGroup);
+const concrete = new THREE.MeshStandardMaterial({ color: 0xc6c2b8, roughness: 0.9 });
+const wMidY = (WELL_TOP + WELL_BOT) / 2, wzC = FRONT - WELL_D / 2 + 30;   // 단면 앞으로 돌출(가림 방지)
+const addWall = (w, h, d, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), concrete); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; wellGroup.add(m); };
+addWall(16, wellH, WELL_D, WELLX - WELL_W / 2, wMidY, wzC);          // 좌벽
+addWall(16, wellH, WELL_D, WELLX + WELL_W / 2, wMidY, wzC);          // 우벽
+addWall(WELL_W + 32, 16, WELL_D, WELLX, WELL_BOT + 8, wzC);          // 바닥
+addWall(WELL_W + 32, wellH, 14, WELLX, wMidY, wzC - WELL_D / 2 + 7);   // 뒷벽 (앞·위 개방)
+// 물 — 앞면이 단면(z≈FRONT)에 노출, 바닥 피벗으로 차오름
+const wwH = wellH - 16;
+const wwg = new THREE.BoxGeometry(WELL_W - 8, wwH, WELL_D - 10); wwg.translate(0, wwH / 2, 0);
+const wellWater = new THREE.Mesh(wwg, new THREE.MeshStandardMaterial({ color: 0x2fa6db, roughness: 0.14, transparent: true, opacity: 0.95, emissive: 0x0b3954, emissiveIntensity: 0.35 }));
+wellWater.position.set(WELLX, WELL_BOT + 8, wzC); wellWater.scale.y = 0; wellGroup.add(wellWater);
+
+// ================================================
+//  PBD 스티처 (궤도 + 본체 + 격자 마스트 + 맨드릴)
+// ================================================
+function buildStitcher() {
+  const rig = new THREE.Group();
+  const steel = new THREE.MeshStandardMaterial({ color: 0x4a515b, roughness: 0.6, metalness: 0.45 });
+  const yellow = new THREE.MeshStandardMaterial({ color: 0xf2b32e, roughness: 0.55 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x33373d, roughness: 0.7, metalness: 0.3 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0xbfe3f5, roughness: 0.2, metalness: 0.1 });
+  const tracks = new THREE.Mesh(new THREE.BoxGeometry(250, 46, 130), new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.85 }));
+  tracks.position.set(0, 23, -58); tracks.castShadow = true; rig.add(tracks);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(200, 118, 128), yellow);
+  body.position.set(0, 108, -58); body.castShadow = true; rig.add(body);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(86, 76, 96), yellow);
+  cab.position.set(66, 150, -58); cab.castShadow = true; rig.add(cab);
+  const win = new THREE.Mesh(new THREE.BoxGeometry(58, 50, 98), glass);
+  win.position.set(74, 156, -58); rig.add(win);
+  // 격자 마스트(리더) — 앞 절단면(z=0 local)
+  const railH = 520;
+  [-18, 18].forEach(rx => { const r = new THREE.Mesh(new THREE.BoxGeometry(11, railH, 13), steel); r.position.set(rx, railH / 2 + 10, 0); r.castShadow = true; rig.add(r); });
+  for (let y = 44; y < railH; y += 46) { const rung = new THREE.Mesh(new THREE.BoxGeometry(38, 6, 11), steel); rung.position.set(0, y, 0); rig.add(rung); }
+  const pulley = new THREE.Mesh(new THREE.BoxGeometry(54, 30, 26), dark); pulley.position.set(0, railH + 22, 0); rig.add(pulley);
+  // 맨드릴(needle) — 상하 이동
+  const mandrelGroup = new THREE.Group();
+  const lance = new THREE.Mesh(new THREE.BoxGeometry(16, 560, 16), dark); lance.position.set(0, 270, 0); lance.castShadow = true; mandrelGroup.add(lance);
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(22, 28, 22), steel); tip.position.set(0, -6, 0); mandrelGroup.add(tip);
+  rig.add(mandrelGroup);
+  rig.visible = false;
+  scene.add(rig);
+  return { rig, mandrelGroup };
+}
+const stit = buildStitcher();
+
+// ---------- 관입 먼지 ----------
+function dustTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(64, 64, 2, 64, 64, 64);
+  rg.addColorStop(0, 'rgba(206,186,146,0.9)'); rg.addColorStop(1, 'rgba(206,186,146,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+const _dustTex = dustTex();
+function spawnDust(x, y, z) {
+  for (let i = 0; i < 6; i++) {
+    const m = new THREE.SpriteMaterial({ map: _dustTex, transparent: true, depthWrite: false, opacity: 0.6 });
+    const s = new THREE.Sprite(m); const sc = rnd(22, 42); s.scale.set(sc, sc, 1);
+    s.position.set(x + rnd(-12, 12), y + rnd(0, 10), z + rnd(-4, 12));
+    scene.add(s);
+    const ang = rnd(0, 6.283), dist = rnd(30, 80);
+    gsap.to(s.position, { x: s.position.x + Math.cos(ang) * dist, y: s.position.y + rnd(45, 95), duration: 1.1, ease: 'power1.out' });
+    gsap.to(s.scale, { x: sc * 2.2, y: sc * 2.2, duration: 1.1 });
+    gsap.to(m, { opacity: 0, duration: 0.9, delay: 0.3, onComplete: () => { scene.remove(s); m.dispose(); } });
+  }
+}
+
+// ================================================
+//  사다리꼴 성토(surcharge) — PBD 범위 안, 단면으로 성장
+// ================================================
+const SUR_H = 260;
+const surShape = new THREE.Shape();
+surShape.moveTo(-1000, 0); surShape.lineTo(1000, 0); surShape.lineTo(700, SUR_H); surShape.lineTo(-700, SUR_H); surShape.closePath();
+// 경사면(측벽)에도 질감이 입혀지도록 UV 직접 매핑: 단면=( x,y ), 측벽/경사면=( z,y )
+const TS = 300;
+const surUV = {
+  generateTopUV(g, v, a, b, c) {
+    return [new THREE.Vector2(v[a * 3] / TS, v[a * 3 + 1] / TS), new THREE.Vector2(v[b * 3] / TS, v[b * 3 + 1] / TS), new THREE.Vector2(v[c * 3] / TS, v[c * 3 + 1] / TS)];
+  },
+  generateSideWallUV(g, v, a, b, c, d) {
+    const ys = [v[a * 3 + 1], v[b * 3 + 1], v[c * 3 + 1], v[d * 3 + 1]];
+    const horizontal = (Math.max(...ys) - Math.min(...ys)) < 30;   // 윗/밑면 vs 경사면 구분
+    const uv = i => horizontal
+      ? new THREE.Vector2(v[i * 3] / TS, v[i * 3 + 2] / TS)         // 수평면: (x,z)
+      : new THREE.Vector2(v[i * 3 + 2] / TS, v[i * 3 + 1] / TS);    // 경사면: (z,y)
+    return [uv(a), uv(b), uv(c), uv(d)];
+  }
+};
+const surGeo = new THREE.ExtrudeGeometry(surShape, { depth: Dp, bevelEnabled: false, UVGenerator: surUV });
+surGeo.translate(0, 0, -Dp / 2);
+// 클리핑 플레인으로 아래→위 성장(노멀 보존). constant = 보이는 상단 y
+const moundClip = new THREE.Plane(new THREE.Vector3(0, -1, 0), GROUND);
+matSur.side = THREE.DoubleSide; matSur.clippingPlanes = [moundClip]; matSur.clipShadows = true;
+const mound = new THREE.Mesh(surGeo, matSur);
+mound.position.set(0, GROUND, 0);
+mound.visible = false;     // 씬4 전까지 숨김(씬1~3 영향 차단)
+mound.castShadow = true; mound.receiveShadow = true;
+scene.add(mound);
+
+// 침하 — 성토 우측 상단 모서리 레벨 라벨(10 m → 0 m). 가로 기준선 없음.
+const levelTag = document.getElementById('levelTag');
+const lensWaterP = { p: 0 };       // 렌즈 물 상승(선형, 일정 속도)
+const SETTLE_MAX = 95;             // 침하 최대(월드 단위)
+const LEVEL0 = 10;                 // 표시 시작 레벨 10 m → 0 m
+const levelCorner = new THREE.Vector3(770, 0, FRONT + 14);   // 라벨 앵커(성토 우측 상단, y는 프레임에서 갱신)
+
+// ----- 지층 명칭 라벨(씬2 매립 완료 시 표시) — 각 층 좌측 앞모서리(x=-Wd/2, z=FRONT)에 앵커 -----
+const LAYER_TAGS = [
+  { el: document.getElementById('ltFill'), y: (SEABED + GROUND) / 2 },   // 매립층(준설토): -160~40
+  { el: document.getElementById('ltClay'), y: -290 },                    // 연약점토층: -420~-160
+  { el: document.getElementById('ltRock'), y: -470 }                     // 기반암: -520~-420
+];
+const ltFillLabel = LAYER_TAGS[0].el;   // 최상단 라벨: 씬1=바다 → 매립 완료 후 매립층(준설토)
+const _layerV = new THREE.Vector3();
+let layerTagsOn = false;
+function updateLayerTags() {
+  for (const t of LAYER_TAGS) {
+    _layerV.set(-Wd / 2, t.y, FRONT).project(camera);
+    t.el.style.left = ((_layerV.x * 0.5 + 0.5) * innerWidth) + 'px';
+    t.el.style.top = ((-_layerV.y * 0.5 + 0.5) * innerHeight) + 'px';
+  }
+}
+function setLayerTags(on) {
+  layerTagsOn = on;
+  if (on) updateLayerTags();
+  for (const t of LAYER_TAGS) t.el.style.opacity = on ? '1' : '0';
+}
+
+// ----- 집수정 라벨(씬3 집수정 설치 시 표시) — 집수정 상단에 앵커, 라벨은 위쪽 -----
+const wellTag = document.getElementById('ltWell');
+const _wellAnchor = new THREE.Vector3(WELLX, WELL_TOP, FRONT);
+const _wellV = new THREE.Vector3();
+let wellTagOn = false;
+function updateWellTag() {
+  _wellV.copy(_wellAnchor).project(camera);
+  wellTag.style.left = ((_wellV.x * 0.5 + 0.5) * innerWidth) + 'px';
+  wellTag.style.top = ((-_wellV.y * 0.5 + 0.5) * innerHeight) + 'px';
+}
+function setWellTag(on) {
+  wellTagOn = on;
+  if (on) updateWellTag();
+  wellTag.style.opacity = on ? '1' : '0';
+}
+
+// ================================================
+//  하중 화살표 (성토 무게로 누름) — PBD 범위 안
+// ================================================
+function buildLoadArrows() {
+  const g = new THREE.Group();
+  const inner = new THREE.Group(); g.add(inner);   // 펄스용(침하와 분리)
+  const red = new THREE.MeshStandardMaterial({ color: 0xe23b2f, roughness: 0.38, metalness: 0.2, emissive: 0x6a1008, emissiveIntensity: 0.42 });
+  const topY = GROUND + SUR_H;
+  // 성토 '전체 면적'이 하중을 받음 → 윗면 전체에 격자형 화살표(연결 bar 없음)
+  const xs = [-620, -310, 0, 310, 620];
+  const zs = [-520, -175, 175, 520];
+  for (const x of xs) for (const z of zs) {
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(8, 8, 60, 16), red); shaft.position.set(x, topY + 72, z); shaft.castShadow = true; inner.add(shaft);
+    const head = new THREE.Mesh(new THREE.ConeGeometry(20, 40, 22), red); head.position.set(x, topY + 22, z); head.rotation.z = Math.PI; head.castShadow = true; inner.add(head);
+  }
+  g.visible = false; scene.add(g);
+  return { g, inner };
+}
+const loadArr = buildLoadArrows();
+const loadG = loadArr.g;
+
+// ----- 성토 낙하: 흙 알갱이가 우수수 떨어지며 차오름 (Points 입자) -----
+let pouring = false;
+const POUR_N = 480;
+const pourPos = new Float32Array(POUR_N * 3);
+const pourCol = new Float32Array(POUR_N * 3);
+const pourVel = new Float32Array(POUR_N);
+const SOILC = [new THREE.Color(0xb89a63), new THREE.Color(0xd8c08a), new THREE.Color(0x9c7c46), new THREE.Color(0xcaa86f), new THREE.Color(0xe0caa0)];
+function resetPourPt(i, init) {
+  pourPos[i * 3] = rnd(-740, 740);
+  pourPos[i * 3 + 1] = moundClip.constant + rnd(30, 360) + (init ? rnd(0, 320) : 0);
+  pourPos[i * 3 + 2] = rnd(-Dp / 2 + 70, Dp / 2 - 30);
+  pourVel[i] = rnd(260, 470);
+}
+for (let i = 0; i < POUR_N; i++) {
+  resetPourPt(i, true);
+  const c = SOILC[i % SOILC.length]; pourCol[i * 3] = c.r; pourCol[i * 3 + 1] = c.g; pourCol[i * 3 + 2] = c.b;
+}
+function pointTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d'); const rg = g.createRadialGradient(32, 32, 1, 32, 32, 32);
+  rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.6, 'rgba(255,255,255,0.85)'); rg.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c);
+}
+const pourGeo = new THREE.BufferGeometry();
+pourGeo.setAttribute('position', new THREE.BufferAttribute(pourPos, 3));
+pourGeo.setAttribute('color', new THREE.BufferAttribute(pourCol, 3));
+const pourPts = new THREE.Points(pourGeo, new THREE.PointsMaterial({ size: 30, map: pointTex(), vertexColors: true, transparent: true, depthWrite: false, sizeAttenuation: true, opacity: 0.98 }));
+pourPts.visible = false; scene.add(pourPts);
+function updatePour(dt) {
+  const top = moundClip.constant;
+  for (let i = 0; i < POUR_N; i++) {
+    pourPos[i * 3 + 1] -= pourVel[i] * dt;
+    if (pourPos[i * 3 + 1] <= top + rnd(-6, 10)) resetPourPt(i, false);
+  }
+  pourGeo.attributes.position.needsUpdate = true;
+}
+
+// ================================================
+//  굴착기 (3관절 FK 리그) — 굴착→상차
+// ================================================
+function buildExcavator() {
+  const exc = new THREE.Group();
+  const yellow = new THREE.MeshStandardMaterial({ color: 0xf2b32e, roughness: 0.48, metalness: 0.1 });
+  const yellowD = new THREE.MeshStandardMaterial({ color: 0xd6951c, roughness: 0.55 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2c3036, roughness: 0.7, metalness: 0.3 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x8b939d, roughness: 0.35, metalness: 0.7 });
+  const chrome = new THREE.MeshStandardMaterial({ color: 0xd9dee4, roughness: 0.18, metalness: 0.9 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0xbfe3f5, roughness: 0.12, metalness: 0.2 });
+  const trk = new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.88 });
+  const cylX = (r, len, mat) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 16), mat); m.rotation.z = Math.PI / 2; m.castShadow = true; return m; };
+  const cylZ = (r, len, mat) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 18), mat); m.rotation.x = Math.PI / 2; m.castShadow = true; return m; };
+
+  // ----- 하부 주행체(트랙) -----
+  [-46, 46].forEach(z => {
+    const belt = new THREE.Mesh(new THREE.BoxGeometry(248, 52, 30), trk); belt.position.set(0, 30, z); belt.castShadow = true; exc.add(belt);
+    [-112, 112].forEach(x => { const w = cylZ(26, 32, steel); w.position.set(x, 30, z); exc.add(w); const h = cylZ(8, 34, dark); h.position.set(x, 30, z); exc.add(h); });
+    [-70, -23, 23, 70].forEach(x => { const r = cylZ(12, 30, dark); r.position.set(x, 16, z); exc.add(r); });
+  });
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(176, 24, 74), dark); frame.position.set(0, 42, 0); exc.add(frame);
+
+  // ----- 상부 선회체 -----
+  const slew = new THREE.Mesh(new THREE.BoxGeometry(186, 16, 116), dark); slew.position.set(0, 62, 0); exc.add(slew);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(148, 60, 104), yellow); body.position.set(22, 100, 0); body.castShadow = true; exc.add(body);
+  const hood = new THREE.Mesh(new THREE.BoxGeometry(92, 20, 98), yellowD); hood.position.set(50, 138, 0); hood.castShadow = true; exc.add(hood);
+  const cw = new THREE.Mesh(new THREE.BoxGeometry(38, 78, 110), yellowD); cw.position.set(100, 94, 0); cw.castShadow = true; exc.add(cw);
+  const cwR = cylZ(39, 110, yellowD); cwR.position.set(100, 94, 0); exc.add(cwR);     // 둥근 후미추
+  const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 26, 12), dark); exhaust.position.set(40, 160, -34); exhaust.castShadow = true; exc.add(exhaust);
+  // 캐빈(좌측 전방) + 글라스
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(60, 70, 80), yellow); cab.position.set(-56, 106, 22); cab.castShadow = true; exc.add(cab);
+  const fglass = new THREE.Mesh(new THREE.BoxGeometry(48, 54, 82), glass); fglass.position.set(-62, 110, 22); exc.add(fglass);
+  const handrail = cylZ(3, 70, steel); handrail.position.set(-86, 70, 22); exc.add(handrail);
+
+  // ----- 팔(FK): 어깨 → 붐 → 스틱 → 버킷 (-X로 뻗음) -----
+  const pin = (g, x, y) => { const p = cylZ(7, 116, steel); p.position.set(x, y, 0); g.add(p); };
+  const boomG = new THREE.Group(); boomG.position.set(-40, 108, 0); exc.add(boomG);
+  pin(boomG, 0, 0);
+  const boom = new THREE.Mesh(new THREE.BoxGeometry(184, 30, 30), yellow); boom.position.set(-92, 6, 0); boom.castShadow = true; boomG.add(boom);
+  const boomCyl = cylX(11, 96, steel); boomCyl.position.set(-58, -16, 0); boomG.add(boomCyl);   // 붐 유압 실린더
+  const boomRod = cylX(6, 70, chrome); boomRod.position.set(-96, -16, 0); boomG.add(boomRod);
+  const stickG = new THREE.Group(); stickG.position.set(-184, 0, 0); boomG.add(stickG);
+  pin(stickG, 0, 0);
+  const stick = new THREE.Mesh(new THREE.BoxGeometry(150, 24, 24), yellow); stick.position.set(-74, -2, 0); stick.castShadow = true; stickG.add(stick);
+  const stickCyl = cylX(9, 78, steel); stickCyl.position.set(-30, 20, 0); stickG.add(stickCyl); // 스틱 유압
+  const stickRod = cylX(5, 56, chrome); stickRod.position.set(-66, 20, 0); stickG.add(stickRod);
+  const bucketG = new THREE.Group(); bucketG.position.set(-150, -2, 0); stickG.add(bucketG);
+  pin(bucketG, 0, 0);
+  // 곡면 버킷(스쿱) + 버킷날
+  const bShape = new THREE.Shape();
+  bShape.moveTo(8, 6); bShape.lineTo(50, 10);
+  bShape.quadraticCurveTo(64, -18, 44, -48);
+  bShape.quadraticCurveTo(22, -64, -8, -52);
+  bShape.quadraticCurveTo(-18, -28, -4, -2);
+  bShape.closePath();
+  const bGeo = new THREE.ExtrudeGeometry(bShape, { depth: 86, bevelEnabled: false }); bGeo.translate(0, 0, -43);
+  const bucket = new THREE.Mesh(bGeo, dark); bucket.castShadow = true; bucketG.add(bucket);
+  for (let i = 0; i < 5; i++) {   // 버킷날
+    const tooth = new THREE.Mesh(new THREE.ConeGeometry(5, 18, 4), steel);
+    tooth.position.set(44 - i * 0.5, -54, -32 + i * 16); tooth.rotation.x = Math.PI; bucketG.add(tooth);
+  }
+  exc.visible = false;
+  scene.add(exc);
+  return { exc, boomG, stickG, bucketG };
+}
+const dig = buildExcavator();
+const POSE = { rest: [0.40, -1.05, -0.45], dig: [-0.12, -0.52, -1.00], lift: [0.58, -1.22, -0.62] };
+function poseExc(b, s, k) { dig.boomG.rotation.z = b; dig.stickG.rotation.z = s; dig.bucketG.rotation.z = k; }
+
+// ================================================
+//  압밀 — 간극수 배출(PBD 통과) + 침하(settlement)
+// ================================================
+const settleObj = { v: 0 };          // 침하량(성토 범위 윗면이 내려오는 양)
+const fillState = { grow: 0 };       // 준설토 매립 진행 0→1
+function updateFill() { fill.scale.y = fillState.grow; }   // 매립(성장)만 담당
+// PBD는 성토 범위에서 윗면과 함께 동반 침하(바닥 고정)
+function updateDrain(o) { o.d.scale.y = o.grow * (dH - settleObj.v * settleBump(o.x)) / dH; }
+function applySettle() {
+  displaceFillTop(settleObj.v);                // 성토 범위만 준설토 윗면이 내려감(국부 침하)
+  drains.forEach(updateDrain);
+  mound.position.y = GROUND - settleObj.v;     // 성토가 침하 트로프와 함께 가라앉음
+  loadG.position.y = -settleObj.v;
+  // 성토 범위 밖 지반·원지반(연약토·암반)은 현재 레벨 그대로
+}
+function settledTop() { return GROUND - settleObj.v; }
+// 간극수 입자 — 연약층에서 수평으로 배수재로 이동 → 배수재 따라 상승·배출
+const dropGeo = new THREE.SphereGeometry(13, 12, 12);
+const drops = [];
+for (let i = 0; i < 22; i++) {
+  const m = new THREE.MeshStandardMaterial({ color: 0x2fa6db, emissive: 0x0c3a54, emissiveIntensity: 0.5, roughness: 0.3, transparent: true, opacity: 0 });
+  const s = new THREE.Mesh(dropGeo, m); s.visible = false; scene.add(s);
+  drops.push({ s, dx: 0, sx: 0, sy: 0, t: Math.random(), sp: rnd(0.4, 0.7) });
+}
+let consolidating = false;
+function recycleDrop(d) {
+  const dr = drains[Math.floor(rnd(0, DN))];
+  d.dx = dr.x; d.sx = dr.x + rnd(-150, 150); d.sy = rnd(-252, -168); d.t = 0; d.sp = rnd(0.4, 0.72);
+}
+function updateDrops(dt) {
+  for (const d of drops) {
+    d.t += dt * d.sp;
+    if (d.t >= 1) recycleDrop(d);
+    const t = d.t; let x, y;
+    if (t < 0.5) { const u = t / 0.5; x = d.sx + (d.dx - d.sx) * u; y = d.sy; }            // 수평 → 배수재
+    else { const u = (t - 0.5) / 0.5; x = d.dx; y = d.sy + (settledTop() - d.sy) * u; }     // 배수재 따라 상승
+    d.s.position.set(x, y, FRONT + 6);
+    d.s.material.opacity = 0.9 * Math.min(1, t / 0.12) * Math.min(1, (1 - t) / 0.18);
+  }
+}
+
+// ---------- 렌즈(미시): 입자 압축 재정렬 + 간극수 PBD 배출 ----------
+const lensWrap = document.getElementById('lenswrap');
+const lensCanvas = document.getElementById('lens');
+const LSZ = 270; lensCanvas.width = LSZ; lensCanvas.height = LSZ;
+const lctx = lensCanvas.getContext('2d');
+const Lc = LSZ / 2, lchX = LSZ - 38;
+const lgrains = [], lblobs = [];
+for (let i = 0; i < 30; i++) {
+  const a = rnd(0, 6.2832), r = rnd(14, LSZ * 0.43);
+  const ox = Lc + Math.cos(a) * r, oy = Lc + Math.sin(a) * r;
+  lgrains.push({ ox, oy, dx: Lc + (ox - Lc) * 0.6, dy: Lc + (oy - Lc) * 0.6, rr: rnd(12, 22), c: ['#cda873', '#c2974f', '#dabb84'][i % 3] });
+}
+for (let i = 0; i < 16; i++) { const a = rnd(0, 6.2832), r = rnd(24, LSZ * 0.4); lblobs.push({ x: Lc + Math.cos(a) * r, y: Lc + Math.sin(a) * r, rr: rnd(7, 14) }); }
+function drawLens(pg, pw, t) {
+  lctx.clearRect(0, 0, LSZ, LSZ);
+  lctx.fillStyle = '#c2a06a'; lctx.fillRect(0, 0, LSZ, LSZ);
+  for (const b of lblobs) {                       // 간극수(비정형) → 줄며 채널로(물=선형 pw)
+    const x = b.x + (lchX - b.x) * pw, r = b.rr * (1 - 0.82 * pw);
+    if (r > 0.6) { lctx.fillStyle = 'rgba(45,160,214,0.92)'; lctx.beginPath(); lctx.ellipse(x, b.y, r * 1.25, r, 0, 0, 6.2832); lctx.fill(); }
+  }
+  for (const g of lgrains) {                       // 모래 입자 재정렬(압밀 pg)
+    const x = g.ox + (g.dx - g.ox) * pg, y = g.oy + (g.dy - g.oy) * pg;
+    lctx.fillStyle = g.c; lctx.strokeStyle = '#8f6b3c'; lctx.lineWidth = 2;
+    lctx.beginPath(); lctx.arc(x, y, g.rr, 0, 6.2832); lctx.fill(); lctx.stroke();
+  }
+  lctx.fillStyle = '#eef3f7'; lctx.fillRect(lchX - 11, 0, 22, LSZ);   // PBD 채널(흰 배수재)
+  lctx.strokeStyle = '#aab6c2'; lctx.lineWidth = 2; lctx.strokeRect(lchX - 11, 0, 22, LSZ);
+  // 채널 속 '진짜 물'이 아래→위로 차오르며 상승(물방울 아님)
+  const wlev = LSZ * (0.12 + 0.88 * pw), wy = LSZ - wlev;
+  lctx.fillStyle = 'rgba(43,159,214,0.96)'; lctx.fillRect(lchX - 8, wy, 16, wlev);
+  lctx.fillStyle = 'rgba(160,224,250,0.7)';                      // 상승 흐름 결
+  for (let k = 0; k < 5; k++) { const yy = LSZ - ((t * 95 + k * 46) % Math.max(20, wlev)); if (yy > wy) lctx.fillRect(lchX - 7, yy, 14, 3.5); }
+}
+
+// ---------- 렌즈 콜아웃: 어느 부분을 확대한 것인지 표시 ----------
+const callout = document.getElementById('callout');
+const coLine = document.getElementById('coLine');
+const coRing = document.getElementById('coRing');
+const coSrc = new THREE.Vector3(347, -40, FRONT);     // 확대 지점(성토 아래 PBD 부근)
+function updateCallout() {
+  const v = coSrc.clone().project(camera);
+  const sx = (v.x * 0.5 + 0.5) * innerWidth, sy = (-v.y * 0.5 + 0.5) * innerHeight;
+  const lx2 = 34 + 270, ly2 = innerHeight - 235;   // 좌하단 렌즈의 우측 가장자리
+  coLine.setAttribute('x1', sx); coLine.setAttribute('y1', sy);
+  coLine.setAttribute('x2', lx2); coLine.setAttribute('y2', ly2);
+  coRing.setAttribute('cx', sx); coRing.setAttribute('cy', sy); coRing.setAttribute('r', 28);
+}
+
+// ---------- 자막 ----------
+function say(M, at, html) {
+  M.call(() => {
+    cap.innerHTML = html;
+    gsap.fromTo(cap, { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.5, overwrite: true });
+  }, null, at);
+}
+
+// ---------- 시퀀스 (씬 단위로 확장) ----------
+function resetWorld() {
+  fillState.grow = 0;
+  seaMat.opacity = 0.82; surfMat.opacity = 0.9;
+  sea.visible = true; waterCol.visible = true;
+  stit.rig.visible = false; gsap.set(stit.mandrelGroup.position, { y: 0 });
+  drains.forEach(o => { o.grow = 0; o.d.visible = false; o.w.visible = false; gsap.set(o.w.scale, { y: 0 }); });
+  wellGroup.visible = false; collector.visible = false; collWater.visible = false;
+  gsap.set(wellWater.scale, { y: 0 }); gsap.set(collWater.scale, { x: 0 }); gsap.set(collector.scale, { x: 1 }); gsap.set(wellGroup.position, { y: 0 });
+  lensWaterP.p = 0; levelTag.style.opacity = '0'; ltFillLabel.innerHTML = '바다'; setLayerTags(false); setWellTag(false);
+  moundClip.constant = GROUND; mound.visible = false;
+  dig.exc.visible = false; poseExc(...POSE.rest);
+  loadG.visible = false; gsap.set(loadG.position, { y: 0 }); gsap.set(loadG.scale, { y: 1 }); gsap.set(loadArr.inner.position, { y: 0 });
+  consolidating = false; pouring = false; pourPts.visible = false;
+  settleObj.v = 0; updateFill(); applySettle();   // grow=0 → scale 0, 트로프/침하 리셋
+  cap.innerHTML = ''; gsap.set(cap, { opacity: 0 });
+}
+function play() {
+  resetWorld();
+  const M = gsap.timeline();
+
+  // 씬 1 — 바다
+  say(M, 0.2, '원래 이곳은 <span class="hl">바다</span>였습니다.');
+  // 지층 명칭 라벨: 씬1부터 끝까지 계속 표시(최상단은 바다 → 매립 완료 후 매립층)
+  M.call(() => { ltFillLabel.innerHTML = '바다'; setLayerTags(true); }, null, 0.6);
+  M.to({}, { duration: 3.4 });  // 파도 감상
+
+  // 씬 2 — 준설토 매립 (카메라 고정) — 원지반 위로 흙이 아래부터 천천히 차오름
+  const s2 = 3.6;
+  say(M, s2, '바다를 <span class="hl">준설토로 메워</span> 땅을 만듭니다.');
+  M.to(fillState, { grow: 1, duration: 4.4, ease: 'power1.inOut', onUpdate: updateFill }, s2 + 0.2);   // 바닥부터 천천히 차오름
+  // 매립토가 수면을 넘어서면 바닷물 사라짐
+  M.to([surfMat, seaMat], { opacity: 0, duration: 1.4, ease: 'power1.in' }, s2 + 3.6);
+  M.add(() => { sea.visible = false; waterCol.visible = false; }, s2 + 5.0);
+  // 매립 완료 → 최상단 라벨을 '바다' → '매립층(준설토)'로 교체(계속 표시)
+  M.call(() => { ltFillLabel.innerHTML = '매립층<small>(준설토)</small>'; setLayerTags(true); }, null, s2 + 4.8);
+
+  // 씬 3 — PBD 설치 (카메라 고정) — 스티처가 좌→우로 이동하며 관입
+  const s3 = s2 + 6.4;   // ≈ 10.0
+  say(M, s3, '연약지반에 <span class="hl">배수재(PBD)</span>를 촘촘히 박습니다.');
+  M.add(() => { stit.rig.visible = true; stit.rig.position.set(drains[0].x - 720, GROUND, FRONT); }, s3);
+  M.to(stit.rig.position, { x: drains[0].x, duration: 1.2, ease: 'power2.out' }, s3 + 0.2);
+  let t = s3 + 1.7;
+  for (let i = 0; i < DN; i++) {
+    const dr = drains[i];
+    M.to(stit.mandrelGroup.position, { y: -dH, duration: 0.46, ease: 'power2.in' }, t);             // ① 맨드릴 관입(하강) — 기반암 직전까지
+    M.call(spawnDust, [dr.x, GROUND, FRONT], t + 0.44);
+    M.call(() => { dr.d.visible = true; }, null, t + 0.5);                                          // 바닥 도달 → 배수재 노출 시작
+    // ② 인발(상승) — 맨드릴 끝 높이에 PBD 길이를 직접 연동(같은 속도로 끌려 올라옴)
+    M.to(stit.mandrelGroup.position, {
+      y: 0, duration: 0.6, ease: 'power1.out',
+      onUpdate: () => { dr.grow = Math.max(0, Math.min(1, 1 + stit.mandrelGroup.position.y / dH)); updateDrain(dr); }
+    }, t + 0.56);
+    if (i < DN - 1) M.to(stit.rig.position, { x: drains[i + 1].x, duration: 0.5, ease: 'power1.inOut' }, t + 1.22);
+    t += 1.4;
+  }
+  M.to(stit.rig.position, { x: drains[DN - 1].x + 820, duration: 1.3, ease: 'power1.in' }, t);     // 퇴장
+  M.add(() => { stit.rig.visible = false; }, t + 1.3);
+  // 집수정 + 집수관 설치(우측 PBD 자리에 집수정)
+  say(M, t + 1.6, 'PBD관을 타고 지상으로 나오는 수분을 모아 빼낼 수 있는 <span class="hl">집수정</span>을 설치합니다.');
+  M.add(() => { wellGroup.visible = true; collector.visible = true; }, t + 1.6);
+  M.call(() => setWellTag(true), null, t + 1.6);   // 집수정 라벨 표시(이후 계속)
+  M.from(wellGroup.position, { y: 60, duration: 0.7, ease: 'back.out(1.4)' }, t + 1.6);
+  M.fromTo(collector.scale, { x: 0 }, { x: 1, duration: 0.8, ease: 'power2.out' }, t + 1.9);
+
+  // 씬 4 — 성토 (카메라 고정) — 장비 없이 낙하 입자 + 층다짐으로 사다리꼴 성토
+  const s4 = t + 4.4;
+  say(M, s4, '그 위에 흙을 <span class="hl">사다리꼴로 성토</span>해 다집니다.');
+  M.add(() => { mound.visible = true; pouring = true; pourPts.visible = true; }, s4);
+  // 연속 성토 — 3단계로 끊지 않고 하나의 트윈으로 지속적으로 상승
+  const SUR_DURATION = 5.4;   // 기존 3 * LIFT(=5.4s)와 동일한 총 소요 시간
+  M.to(moundClip, { constant: GROUND + SUR_H, duration: SUR_DURATION, ease: 'sine.inOut' }, s4 + 0.3);
+  // 다짐 먼지 — 성토 전체 구간에 균등 분산 (6회)
+  const DUST_N = 6;
+  for (let i = 0; i < DUST_N; i++) {
+    const t = (i + 0.5) / DUST_N;         // 성토 진행률 0~1
+    const at = s4 + 0.3 + SUR_DURATION * t;
+    M.call(spawnDust, [rnd(-360, 360), GROUND + SUR_H * t, FRONT], at);
+  }
+  const laAt = s4 + 0.3 + SUR_DURATION + 0.5;
+  M.add(() => { pouring = false; pourPts.visible = false; }, laAt);
+  M.set(moundClip, { constant: GROUND + SUR_H + 45 }, laAt);   // 다 자란 뒤 클립 해제(윗면 투명 방지)
+  // 하중 — 성토 '전체 면적'에 등분포 격자 화살표
+  say(M, laAt + 0.4, '성토 무게가 <span class="hl">전체 면적</span>을 아래로 누릅니다.');
+  M.add(() => { loadG.visible = true; }, laAt + 0.4);
+  M.fromTo(loadArr.inner.position, { y: 60 }, { y: 0, duration: 0.6, ease: 'back.out(1.6)' }, laAt + 0.4);
+  M.to(loadArr.inner.position, { y: 12, duration: 0.9, repeat: -1, yoyo: true, ease: 'sine.inOut' }, laAt + 1.1);  // 지속 펄스
+
+  // 씬 5 — 압밀: 물이 ①PBD를 타고 올라 → ②가로 집수관 → ③집수정에 차오름. 성토부 침하.
+  // 하중 자막(laAt+0.4) 후 2초 뒤 즉시 씬 5 진입
+  const s5 = laAt + 2.4;
+  say(M, s5, '하중에 눌려 물이 <span class="hl">PBD를 타고 올라</span> 집수관으로 흐릅니다.');
+  M.add(() => { consolidating = true; collWater.visible = true; drains.forEach(o => o.w.visible = true); }, s5);
+  // ① PBD 물 상승 — 천천히 일정 속도(linear)
+  drains.forEach((o, i) => M.fromTo(o.w.scale, { y: 0 }, { y: 1, duration: 3.0, ease: 'none' }, s5 + 0.3 + i * 0.12));
+  M.fromTo(lensWaterP, { p: 0 }, { p: 1, duration: 11, ease: 'none' }, s5 + 0.3);   // 렌즈 물(선형)
+  // ② 가로 집수관을 따라 좌→우(집수정 방향)로 흐름
+  M.fromTo(collWater.scale, { x: 0 }, { x: 1, duration: 3.2, ease: 'none' }, s5 + 3.4);
+  // ③ 집수정 수위 상승 — 천천히 일정 속도
+  say(M, s5 + 6.6, '모인 물로 <span class="hl">집수정 수위가 차오릅니다.</span>');
+  M.fromTo(wellWater.scale, { y: 0 }, { y: 0.9, duration: 5.0, ease: 'none' }, s5 + 6.6);
+  // 성토부 침하(크게) — 압밀 진행과 함께
+  M.to(settleObj, { v: SETTLE_MAX, duration: 8.0, ease: 'sine.inOut', onUpdate: applySettle }, s5 + 0.5);
+  say(M, s5 + 12.5, '물이 빠져 <span class="hl">단단하게 다져진 땅</span>이 되었습니다.');
+  M.to(loadG.scale, { y: 0.001, duration: 0.6, ease: 'power1.in' }, s5 + 12.5);
+  M.add(() => { loadG.visible = false; }, s5 + 13.2);
+  M.to({}, { duration: 1.5 });
+
+  return M;
+}
+let timeline = play();
+
+// ---------- 렌더 루프 ----------
+const clock = new THREE.Clock();
+let lastT = 0;
+function frame() {
+  const t = clock.getElapsedTime();
+  const dt = Math.min(0.05, t - lastT); lastT = t;
+  updateSea(t);
+  if (consolidating) {
+    lensWrap.style.opacity = '1'; callout.style.opacity = '1'; updateCallout();
+    drawLens(Math.min(1, settleObj.v / SETTLE_MAX), Math.min(1, lensWaterP.p), t);
+    // 성토 우측 상단 모서리 레벨 라벨: 10 m → 0 m (성토와 함께 하강)
+    levelCorner.y = GROUND + SUR_H - settleObj.v;
+    const v = levelCorner.clone().project(camera);
+    levelTag.style.left = ((v.x * 0.5 + 0.5) * innerWidth) + 'px';
+    levelTag.style.top = ((-v.y * 0.5 + 0.5) * innerHeight) + 'px';
+    levelTag.textContent = (LEVEL0 * (1 - settleObj.v / SETTLE_MAX)).toFixed(1) + ' m';
+    levelTag.style.opacity = '1';
+  } else { lensWrap.style.opacity = '0'; callout.style.opacity = '0'; levelTag.style.opacity = '0'; }
+  if (layerTagsOn) updateLayerTags();
+  if (wellTagOn) updateWellTag();
+  if (pouring) updatePour(dt);
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+frame();
+
+// ---------- 리사이즈 ----------
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+resize();
+
+// ---------- 컨트롤 ----------
+// ----- 씬 내비게이션 (작업용) -----
+const SCENES = [
+  { n: '씬 1 · 바다', t: 0 },
+  { n: '씬 2 · 준설토 매립', t: 3.6 },
+  { n: '씬 3 · PBD·집수정', t: 10.0 },
+  { n: '씬 4 · 성토', t: 24.5 },
+  { n: '씬 5 · 압밀·집수', t: 36.2 }
+];
+const sceneLabel = document.getElementById('scenelabel');
+function curSceneIndex() {
+  const now = timeline.time(); let idx = 0;
+  for (let i = 0; i < SCENES.length; i++) if (now >= SCENES[i].t - 0.01) idx = i;
+  return idx;
+}
+function gotoScene(i) {
+  i = Math.max(0, Math.min(SCENES.length - 1, i));
+  timeline.kill(); timeline = play();      // 0에서 새로 빌드(상태 리셋) 후
+  timeline.time(SCENES[i].t);              // 해당 씬으로 전진 점프(콜백 순서대로 재생)
+  sceneLabel.textContent = SCENES[i].n;
+}
+document.getElementById('prev').addEventListener('click', () => gotoScene(curSceneIndex() - 1));
+document.getElementById('next').addEventListener('click', () => gotoScene(curSceneIndex() + 1));
+// 재생 중 씬 라벨 갱신
+gsap.ticker.add(() => { const i = curSceneIndex(); if (sceneLabel.textContent !== SCENES[i].n) sceneLabel.textContent = SCENES[i].n; });
+
+// ----- 일시정지 / 재생 토글 -----
+const pauseBtn = document.getElementById('pause');
+function syncPauseBtn() { const t = timeline.paused() ? '▶ 재생' : '⏸ 일시정지'; if (pauseBtn.textContent !== t) pauseBtn.textContent = t; }
+pauseBtn.addEventListener('click', () => { timeline.paused() ? timeline.play() : timeline.pause(); syncPauseBtn(); });
+// 씬 이동·다시 보기로 타임라인이 새로 빌드되면 항상 재생 상태이므로 라벨도 동기화
+gsap.ticker.add(syncPauseBtn);
+
+document.getElementById('replay').addEventListener('click', () => { timeline.kill(); timeline = play(); sceneLabel.textContent = SCENES[0].n; });
+const _p = new URLSearchParams(location.search);
+const _t = _p.get('t');
+if (_t !== null) { timeline.pause(); timeline.time(+_t); }
+// 디버그 카메라: ?cam=px,py,pz,tx,ty,tz
+const _c = _p.get('cam');
+if (_c) {
+  const v = _c.split(',').map(Number);
+  if (v.length === 6) { [cam.px, cam.py, cam.pz, cam.tx, cam.ty, cam.tz] = v; applyCam(); }
+}
+  </script>
+</body>
+</html>
