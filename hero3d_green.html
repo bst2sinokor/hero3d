@@ -63,6 +63,34 @@
   #lenswrap { position: absolute; left: 320px; bottom: 90px; z-index: 4; opacity: 0; transition: opacity 0.6s ease; pointer-events: none; }
   #lens { width: 270px; height: 270px; border-radius: 50%; border: 5px solid #fff; box-shadow: 0 10px 34px rgba(0,0,0,0.5); display: block; }
   #lenscap { text-align: center; color: #fff; font-size: 14px; font-weight: 700; margin-top: 10px; text-shadow: 0 1px 5px rgba(0,0,0,0.7); }
+
+  /* ===== 모바일 반응형 ===== */
+  @media (max-width: 900px) {
+    #hud { top: 16px; padding: 0 12px; }
+    #hud .cap { padding: 10px 18px; font-size: clamp(14px, 3vw, 22px); border-radius: 10px; }
+    #controls { right: 10px; bottom: 10px; gap: 5px; }
+    #controls button { font-size: 12px; padding: 7px 11px; border-radius: 8px; }
+    #scenelabel { left: 10px; bottom: 10px; font-size: 12px; padding: 5px 10px; }
+    #lenswrap { left: 20px; bottom: 20px; }
+    #lens { width: 180px; height: 180px; border-width: 3px; }
+    #lenscap { font-size: 11px; margin-top: 6px; }
+    #levelTag { font-size: 14px; padding: 3px 8px; }
+    .layerTag { font-size: 11px; padding: 4px 8px; }
+    .layerTag small { font-size: 10px; }
+  }
+  @media (max-width: 600px) {
+    #hud { top: 12px; }
+    #hud .cap { padding: 7px 12px; font-size: 13px; }
+    #controls { right: 6px; bottom: 6px; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: 62%; }
+    #controls button { font-size: 11px; padding: 6px 8px; }
+    #scenelabel { font-size: 11px; padding: 4px 8px; }
+    #lenswrap { left: 12px; bottom: 12px; }
+    #lens { width: 140px; height: 140px; border-width: 2px; }
+    #lenscap { font-size: 10px; margin-top: 4px; }
+    .layerTag { font-size: 10px; padding: 3px 6px; transform: translate(calc(-100% - 12px), -50%); }
+    .layerTag::after { right: -12px; width: 12px; }
+    .layerTag::before { right: -12px; }
+  }
 </style>
 </head>
 <body>
@@ -655,8 +683,9 @@ function updateCallout(src) {
   const s = src || coSrc;
   const v = s.clone().project(camera);
   const sx = (v.x * 0.5 + 0.5) * innerWidth, sy = (-v.y * 0.5 + 0.5) * innerHeight;
-  // 렌즈 위치와 동기화 (left:320, bottom:90, width:270)
-  const lx2 = 320 + 270, ly2 = innerHeight - 90 - 135;   // 렌즈의 우측 가장자리·세로 중앙
+  // 렌즈 DOM 실제 위치 기반 동적 계산 (모바일 반응형에서도 정확히 맺힘)
+  const lr = document.getElementById('lens').getBoundingClientRect();
+  const lx2 = lr.right, ly2 = lr.top + lr.height / 2;
   coLine.setAttribute('x1', sx); coLine.setAttribute('y1', sy);
   coLine.setAttribute('x2', lx2); coLine.setAttribute('y2', ly2);
   coRing.setAttribute('cx', sx); coRing.setAttribute('cy', sy); coRing.setAttribute('r', 28);
