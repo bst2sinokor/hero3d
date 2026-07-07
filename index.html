@@ -4,6 +4,31 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>웅동2단계 항만배후단지 / 부산그린파워 조성 과정과 차이점</title>
+<script>
+// 메신저 in-app 브라우저 감지 → 외부 브라우저(Chrome/Safari)로 자동 이동
+// 이유: 카톡·라인·네이버 등 in-app 브라우저는 WebGL/Three.js 렌더링 제약이 큼
+(function () {
+  const ua = navigator.userAgent.toLowerCase();
+  const url = location.href;
+  if (/kakaotalk/i.test(ua)) {
+    location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(url);
+    return;
+  }
+  if (/line\//i.test(ua)) {
+    location.href = url + (url.includes('?') ? '&' : '?') + 'openExternalBrowser=1';
+    return;
+  }
+  if (/naver\(inapp/i.test(ua)) {
+    location.href = 'naversearchapp://inappbrowser?url=' + encodeURIComponent(url) + '&target=external';
+    return;
+  }
+  if (/(instagram|fban|fbav|whatsapp)/i.test(ua) && /android/i.test(ua)) {
+    location.href = 'intent://' + url.replace(/^https?:\/\//, '') +
+      '#Intent;scheme=' + (url.startsWith('https') ? 'https' : 'http') +
+      ';package=com.android.chrome;end';
+  }
+})();
+</script>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #dcebf7;

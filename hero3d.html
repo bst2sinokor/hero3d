@@ -33,7 +33,7 @@
   #coLine { stroke: #fff; stroke-width: 2.5; stroke-dasharray: 7 7; }
   #coRing { fill: rgba(255,210,63,0.12); stroke: #ffd23f; stroke-width: 3.5; }
   #lenswrap {
-    position: absolute; left: 34px; bottom: 70px; z-index: 4;
+    position: absolute; left: 320px; bottom: 90px; z-index: 4;
     opacity: 0; transition: opacity 0.6s ease; pointer-events: none;
   }
   #lens { width: 270px; height: 270px; border-radius: 50%; border: 5px solid #fff;
@@ -764,14 +764,17 @@ function drawLens(pg, pw, t) {
 const callout = document.getElementById('callout');
 const coLine = document.getElementById('coLine');
 const coRing = document.getElementById('coRing');
-const coSrc = new THREE.Vector3(347, -40, FRONT);     // 확대 지점(성토 아래 PBD 부근)
+// 확대 지점 — PBD 배수재(x=347)가 매립층·연약점토층 경계(y=SEABED=-160)를 관통하는 지점.
+// 이 지점을 확대하면 매립층·연약점토층·PBD관이 모두 렌즈 시야에 들어옴
+const coSrc = new THREE.Vector3(347, SEABED, FRONT);
 function updateCallout() {
   const v = coSrc.clone().project(camera);
   const sx = (v.x * 0.5 + 0.5) * innerWidth, sy = (-v.y * 0.5 + 0.5) * innerHeight;
-  const lx2 = 34 + 270, ly2 = innerHeight - 235;   // 좌하단 렌즈의 우측 가장자리
+  // 렌즈 위치와 동기화 (left:320, bottom:90, width:270)
+  const lx2 = 320 + 270, ly2 = innerHeight - 90 - 135;
   coLine.setAttribute('x1', sx); coLine.setAttribute('y1', sy);
   coLine.setAttribute('x2', lx2); coLine.setAttribute('y2', ly2);
-  coRing.setAttribute('cx', sx); coRing.setAttribute('cy', sy); coRing.setAttribute('r', 28);
+  coRing.setAttribute('cx', sx); coRing.setAttribute('cy', sy); coRing.setAttribute('r', 44);
 }
 
 // ---------- 자막 ----------
