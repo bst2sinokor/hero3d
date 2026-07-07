@@ -60,21 +60,21 @@
   #callout { position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; transition: opacity 0.5s ease; width: 100%; height: 100%; }
   #coLine { stroke: #fff; stroke-width: 2.5; stroke-dasharray: 7 7; }
   #coRing { fill: rgba(255,210,63,0.12); stroke: #ffd23f; stroke-width: 3.5; }
-  #lenswrap { position: absolute; left: 34px; bottom: 70px; z-index: 4; opacity: 0; transition: opacity 0.6s ease; pointer-events: none; }
+  #lenswrap { position: absolute; left: 320px; bottom: 90px; z-index: 4; opacity: 0; transition: opacity 0.6s ease; pointer-events: none; }
   #lens { width: 270px; height: 270px; border-radius: 50%; border: 5px solid #fff; box-shadow: 0 10px 34px rgba(0,0,0,0.5); display: block; }
   #lenscap { text-align: center; color: #fff; font-size: 14px; font-weight: 700; margin-top: 10px; text-shadow: 0 1px 5px rgba(0,0,0,0.7); }
 </style>
 </head>
 <body>
   <div id="stage3d"></div>
-  <div id="scenelabel">씬 6 · 부지 굴착</div>
+  <div id="scenelabel">씬 1 · 바다</div>
   <div id="controls">
     <button id="prev">◀ 이전 씬</button>
     <button id="pause">⏸ 일시정지</button>
     <button id="next">다음 씬 ▶</button>
     <button id="replay">⟲ 다시 보기</button>
   </div>
-  <div class="layerTag" id="ltFill">매립층<small>(준설토)</small></div>
+  <div class="layerTag" id="ltFill">바다</div>
   <div class="layerTag" id="ltClay">연약점토층</div>
   <div class="layerTag" id="ltRock">기반암</div>
   <div class="layerTag" id="ltCap">최종복토층</div>
@@ -254,7 +254,70 @@ for (let i = 0; i < g_softPos.count; i++) {
   }
 }
 
-// 준설토 매립층 — 셀이 상·하단을 모두 관통 → 좌/우 두 쐐기로 분리
+// ================================================
+//  씬 1·2용: 바다(수주+표면파) + 준설토 매립 성장 애니메이션
+// ================================================
+// 수주(water column) — 원지반 위 SEABED~수면까지 그라데이션 벽
+const seaMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, transparent: true, opacity: 0.82, vertexColors: true });
+const colGeo = new THREE.BoxGeometry(Wd - 10, 156, Dp - 10);
+{
+  const p = colGeo.attributes.position, arr = [];
+  const cBot = new THREE.Color(0x0e3f63), cTop = new THREE.Color(0x3f9fd0), tmp = new THREE.Color();
+  for (let i = 0; i < p.count; i++) {
+    const tt = (p.getY(i) + 78) / 156;
+    tmp.copy(cBot).lerp(cTop, tt); arr.push(tmp.r, tmp.g, tmp.b);
+  }
+  colGeo.setAttribute('color', new THREE.Float32BufferAttribute(arr, 3));
+}
+const waterCol = new THREE.Mesh(colGeo, seaMat);
+waterCol.position.y = SEABED + 78; scene.add(waterCol);
+
+// 표면파 — 파고에 따라 색이 살아 움직임(정점 컬러) + 마루 거품
+const surfMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.16, metalness: 0.1, transparent: true, opacity: 0.9, vertexColors: true });
+const seaGeo = new THREE.PlaneGeometry(Wd - 10, Dp - 10, 90, 52);
+const sea = new THREE.Mesh(seaGeo, surfMat);
+sea.rotation.x = -Math.PI / 2; sea.position.y = 0; scene.add(sea);
+const WAVES = [
+  { ax: 0.0040, az: 0.0060, a: 5.0, s: 0.9, p: 0.0 },
+  { ax: 0.0090, az: 0.0120, a: 2.6, s: 1.5, p: 1.1 },
+  { ax: 0.0160, az: 0.0200, a: 1.3, s: 2.3, p: 2.4 }
+];
+const AMP = WAVES.reduce((s, w) => s + w.a, 0);
+const seaPos = seaGeo.attributes.position;
+const seaCol = new THREE.Float32BufferAttribute(new Float32Array(seaPos.count * 3), 3);
+seaGeo.setAttribute('color', seaCol);
+const seaBaseX = new Float32Array(seaPos.count);
+const seaBaseY = new Float32Array(seaPos.count);
+for (let i = 0; i < seaPos.count; i++) { seaBaseX[i] = seaPos.getX(i); seaBaseY[i] = seaPos.getY(i); }
+const cDeep = new THREE.Color(0x1d6699), cCrest = new THREE.Color(0x9fe0f6), cFoam = new THREE.Color(0xffffff), cw = new THREE.Color();
+function updateSea(t) {
+  if (!sea.visible) return;
+  for (let i = 0; i < seaPos.count; i++) {
+    const x = seaBaseX[i], y = seaBaseY[i];
+    let z = 0;
+    for (const w of WAVES) z += w.a * Math.sin(x * w.ax + y * w.az + w.s * t + w.p);
+    seaPos.setZ(i, z);
+    const tt = (z + AMP) / (2 * AMP);
+    cw.copy(cDeep).lerp(cCrest, tt);
+    if (tt > 0.82) cw.lerp(cFoam, (tt - 0.82) / 0.18 * 0.7);
+    seaCol.setXYZ(i, cw.r, cw.g, cw.b);
+  }
+  seaPos.needsUpdate = true; seaCol.needsUpdate = true;
+  seaGeo.computeVertexNormals();
+}
+
+// 준설토 매립 성장 애니메이션용 임시 fill — 씬2에서 SEABED에서 GROUND로 자라남
+const tempFillH = GROUND - SEABED;
+const tempFillGeo = new THREE.BoxGeometry(Wd, tempFillH, Dp, 12, 1, 6);
+tempFillGeo.translate(0, tempFillH / 2, 0);
+const tempFill = new THREE.Mesh(tempFillGeo, matFill);
+tempFill.position.y = SEABED; tempFill.scale.y = 0;
+tempFill.castShadow = true; tempFill.receiveShadow = true;
+scene.add(tempFill);
+const fillState = { grow: 0 };
+function updateFill() { tempFill.scale.y = fillState.grow; }
+
+// 준설토 매립층 — 셀이 상·하단을 모두 관통 → 좌/우 두 쐐기로 분리 (씬2 이후 표시)
 const g_fillR = extrudeMesh([[Wd / 2, GROUND], [Wd / 2, SEABED], [HW_SEABED, SEABED], [PIT_TOPHW, GROUND]], matFill);
 const g_fillL = extrudeMesh([[-PIT_TOPHW, GROUND], [-HW_SEABED, SEABED], [-Wd / 2, SEABED], [-Wd / 2, GROUND]], matFill);
 
@@ -449,9 +512,22 @@ function buildVacuumPump() {
 }
 const g_pump = buildVacuumPump();
 g_pump.position.set(1030, GROUND, FRONT);
-// 호스 — 펌프 → 셀 바닥 집수관 우측 끝
-const g_hose = tube(new THREE.Vector3(1000, GROUND + 60, FRONT), new THREE.Vector3(VX0 + cwLen, CELL_FLOOR + 12, FRONT), 9, new THREE.MeshStandardMaterial({ color: 0x33373d, roughness: 0.7 }));
+// 호스 — 펌프 → 셀 바닥 집수관 우측 끝 (흰색 관, vacDrainMat와 통일)
+const g_hose = tube(new THREE.Vector3(1000, GROUND + 60, FRONT), new THREE.Vector3(VX0 + cwLen, CELL_FLOOR + 12, FRONT), 9, new THREE.MeshStandardMaterial({ color: 0xeef3f7, roughness: 0.5 }));
 g_hose.visible = false; scene.add(g_hose);
+// 호스 안 물 흐름 — 호스 앞쪽(z+12)에 배치해 불투명 호스에 가려지지 않도록 (PBD·집수관 물과 동일 방식)
+const _hoseP1 = new THREE.Vector3(VX0 + cwLen, CELL_FLOOR + 12, FRONT);
+const _hoseP2 = new THREE.Vector3(1000, GROUND + 60, FRONT);
+const _hoseD = new THREE.Vector3().subVectors(_hoseP2, _hoseP1);
+const _hoseLen = _hoseD.length();
+const g_hoseWaterGeo = new THREE.CylinderGeometry(6, 6, _hoseLen, 12);
+g_hoseWaterGeo.translate(0, _hoseLen / 2, 0);   // 피벗 하단(집수관 측)
+const g_hoseWater = new THREE.Mesh(g_hoseWaterGeo, vacWaterMat.clone());
+g_hoseWater.position.set(_hoseP1.x, _hoseP1.y, _hoseP1.z + 12);   // 호스보다 z+12 앞으로
+g_hoseWater.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), _hoseD.clone().normalize());
+g_hoseWater.scale.y = 0; g_hoseWater.visible = false;
+g_hoseWater.renderOrder = 3;   // 호스보다 뒤에 그려지지 않도록
+scene.add(g_hoseWater);
 // 배출 탱크(개방형) — 물이 차오름
 const g_dtank = new THREE.Group();
 const dtMat = new THREE.MeshStandardMaterial({ color: 0xc6c2b8, roughness: 0.9 });
@@ -569,18 +645,66 @@ function drawLens(pg, pw, t) {
   lctx.fillStyle = 'rgba(160,224,250,0.7)';                          // 상승 흐름 결
   for (let k = 0; k < 5; k++) { const yy = LSZ - ((t * 95 + k * 46) % Math.max(20, wlev)); if (yy > wy) lctx.fillRect(lchX - 7, yy, 14, 3.5); }
 }
-// 렌즈 콜아웃: 확대 지점(셀 바닥 PBD 부근, 연약점토층 속)
+// 렌즈 콜아웃: 확대 지점(기본: 셀 바닥 PBD 부근 / 씬13용: 물류창고 아래 원지반)
 const callout = document.getElementById('callout');
 const coLine = document.getElementById('coLine');
 const coRing = document.getElementById('coRing');
 const coSrc = new THREE.Vector3(-160, (CELL_FLOOR + VD_BOT) / 2, FRONT);
-function updateCallout() {
-  const v = coSrc.clone().project(camera);
+const coSrcWh = new THREE.Vector3(400, CELL_FLOOR - 40, FRONT);   // WH_X=400 물류창고 아래 원지반
+function updateCallout(src) {
+  const s = src || coSrc;
+  const v = s.clone().project(camera);
   const sx = (v.x * 0.5 + 0.5) * innerWidth, sy = (-v.y * 0.5 + 0.5) * innerHeight;
-  const lx2 = 34 + 270, ly2 = innerHeight - 235;   // 좌하단 렌즈의 우측 가장자리
+  // 렌즈 위치와 동기화 (left:320, bottom:90, width:270)
+  const lx2 = 320 + 270, ly2 = innerHeight - 90 - 135;   // 렌즈의 우측 가장자리·세로 중앙
   coLine.setAttribute('x1', sx); coLine.setAttribute('y1', sy);
   coLine.setAttribute('x2', lx2); coLine.setAttribute('y2', ly2);
   coRing.setAttribute('cx', sx); coRing.setAttribute('cy', sy); coRing.setAttribute('r', 28);
+}
+
+// ---------- 씬13용 렌즈: 물류창고 아래 원지반(연약점토층) 침하 미시 표현 ----------
+const whLensState = { p: 0 };   // 0=원상태, 1=완전 침하
+let whLensActive = false;
+// 원지반 입자 (초기 위치, 침하시 압축·하강)
+const whGrains = [];
+for (let i = 0; i < 40; i++) {
+  whGrains.push({
+    ox: rnd(15, LSZ - 15), oy: rnd(LSZ * 0.28, LSZ * 0.95),
+    rr: rnd(5, 11), c: ['#7d5a3f', '#8f6c4a', '#6b4a35', '#5a4128'][i % 4]
+  });
+}
+function drawWhLens(p, t) {
+  lctx.clearRect(0, 0, LSZ, LSZ);
+  // 배경: 원지반(연약점토층) 갈색
+  lctx.fillStyle = '#6b4a35'; lctx.fillRect(0, 0, LSZ, LSZ);
+  // 상단부: 폐기물매립층 + 차수층 (침하 진행에 따라 아래로 내려옴)
+  const wasteBot = 22 + p * 34;          // 폐기물매립층 바닥 y (침하로 하강)
+  const linerY = wasteBot;               // 차수층 y
+  const linerH = 10 - p * 2;             // 차수층 두께 (침하 압력으로 살짝 얇아짐)
+  // 폐기물매립층 (밝은 갈색)
+  lctx.fillStyle = '#a08050'; lctx.fillRect(0, 0, LSZ, wasteBot);
+  // 차수층 (진한 회색)
+  lctx.fillStyle = '#3a4048'; lctx.fillRect(0, linerY, LSZ, linerH);
+  lctx.strokeStyle = '#1a1e22'; lctx.lineWidth = 1;
+  lctx.strokeRect(0, linerY, LSZ, linerH);
+  // 원지반 입자 — 침하 진행 시 아래로 이동 + 압축
+  for (const g of whGrains) {
+    const cy = g.oy + p * 14;              // 하강
+    const cx = g.ox + Math.sin((g.ox * 0.13 + t) * 0.6) * (p * 1.5);
+    const r = g.rr * (1 - p * 0.18);
+    lctx.fillStyle = g.c; lctx.strokeStyle = '#43301c'; lctx.lineWidth = 1.5;
+    lctx.beginPath(); lctx.arc(cx, cy, r, 0, 6.2832); lctx.fill(); lctx.stroke();
+  }
+  // 하중 화살표 (위→아래, 침하 유발)
+  lctx.strokeStyle = 'rgba(240, 90, 60, ' + (0.5 + p * 0.4) + ')';
+  lctx.lineWidth = 3;
+  for (let ax = 40; ax < LSZ - 20; ax += 55) {
+    const yTop = 4, yBot = linerY - 4;
+    lctx.beginPath(); lctx.moveTo(ax, yTop); lctx.lineTo(ax, yBot); lctx.stroke();
+    lctx.beginPath();
+    lctx.moveTo(ax - 5, yBot - 6); lctx.lineTo(ax, yBot); lctx.lineTo(ax + 5, yBot - 6);
+    lctx.stroke();
+  }
 }
 
 // ================================================
@@ -665,7 +789,7 @@ const g_liner = [
   { name: '먼저 <span class="hl">점토·GCL 차수층</span>을 깝니다.', layer: buildLinerLayer(0, 16, matClay) },
   { name: '그 위에 <span class="hl">HDPE 지오멤브레인</span>으로 완전 차수합니다.', layer: buildLinerLayer(16, 24, matHDPE) },
   { name: '<span class="hl">보호 지오텍스타일</span>로 멤브레인을 보호하고,', layer: buildLinerLayer(24, 32, matGtx) },
-  { name: '<span class="hl">배수 자갈층</span>과 침출수 집배수관을 설치합니다.', layer: buildLinerLayer(32, 54, matDrain) }
+  { name: '<span class="hl">배수 자갈층</span>과 <span class="hl">오염수처리시설</span>을 설치합니다.', layer: buildLinerLayer(32, 54, matDrain) }
 ];
 // 침출수 집배수관(배수 자갈층 바닥, 유공관)
 const g_leachPipe = new THREE.Mesh(new THREE.CylinderGeometry(15, 15, Dp - 44, 16), new THREE.MeshStandardMaterial({ color: 0x33373d, roughness: 0.7 }));
@@ -765,6 +889,63 @@ function buildCompactor() {
   g.visible = false; scene.add(g); return g;
 }
 const g_comp = buildCompactor();
+
+// 덤프트럭 — 준설토매립층 우측(셀 우측 경계 근처)에서 짐칸을 들어올려 셀 안으로 폐기물을 부음
+// 색상 및 z 위치가 다른 4대를 준비해 순환 사용
+function buildDumpTruck(bodyColor) {
+  const g = new THREE.Group();
+  const body = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.5 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2c3036, roughness: 0.7, metalness: 0.3 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0xbfe3f5, roughness: 0.2 });
+  const tire = new THREE.MeshStandardMaterial({ color: 0x1e2226, roughness: 0.9 });
+  const wasteMat = new THREE.MeshStandardMaterial({ color: 0x6b5238, roughness: 0.9 });
+
+  // 하부 프레임 (chassis)
+  const chassis = new THREE.Mesh(new THREE.BoxGeometry(280, 20, 100), dark);
+  chassis.position.set(0, 25, 0); chassis.castShadow = true; g.add(chassis);
+
+  // 바퀴 4개
+  [[-100, -35], [-100, 35], [90, -35], [90, 35]].forEach(([wx, wz]) => {
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(25, 25, 20, 16), tire);
+    w.rotation.x = Math.PI / 2; w.position.set(wx, 25, wz); w.castShadow = true; g.add(w);
+  });
+
+  // 운전실 (트럭의 오른쪽 = 셀에서 멀어지는 방향)
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(80, 70, 90), body);
+  cab.position.set(100, 70, 0); cab.castShadow = true; g.add(cab);
+  const cabWin = new THREE.Mesh(new THREE.BoxGeometry(70, 40, 92), glass);
+  cabWin.position.set(102, 80, 0); g.add(cabWin);
+
+  // 짐칸 그룹 (bedGroup) — 회전축(pivot)이 왼쪽-하단(셀 방향, 테일게이트 쪽)
+  const bedGroup = new THREE.Group();
+  bedGroup.position.set(-140, 45, 0);
+  g.add(bedGroup);
+
+  const BED_LEN = 170, BED_H = 8, BED_W = 96, WALL_H = 42;
+  const bedFloor = new THREE.Mesh(new THREE.BoxGeometry(BED_LEN, BED_H, BED_W), body);
+  bedFloor.position.set(BED_LEN / 2, BED_H / 2, 0); bedFloor.castShadow = true; bedGroup.add(bedFloor);
+  const wallSide = (zSign) => {
+    const w = new THREE.Mesh(new THREE.BoxGeometry(BED_LEN, WALL_H, 6), body);
+    w.position.set(BED_LEN / 2, BED_H + WALL_H / 2, zSign * (BED_W / 2 - 3));
+    bedGroup.add(w);
+  };
+  wallSide(1); wallSide(-1);
+  const wallF = new THREE.Mesh(new THREE.BoxGeometry(6, WALL_H, BED_W), body);
+  wallF.position.set(BED_LEN - 3, BED_H + WALL_H / 2, 0); bedGroup.add(wallF);
+
+  const wasteInside = new THREE.Mesh(new THREE.BoxGeometry(BED_LEN - 16, WALL_H * 0.7, BED_W - 12), wasteMat);
+  wasteInside.position.set(BED_LEN / 2, BED_H + WALL_H * 0.35, 0); bedGroup.add(wasteInside);
+
+  g.visible = false; scene.add(g);
+  return { g, bedGroup };
+}
+// 4대 준비: 색상·부음 시 z 위치 서로 다름 (진입은 각 z 라인의 우측 홈에서)
+const g_trucks = [
+  { ...buildDumpTruck(0xe8762a), z: 260, homeX: 1500, pourX: 1040 },   // 오렌지 — 앞쪽 라인
+  { ...buildDumpTruck(0x2b6ca8), z:  40, homeX: 1500, pourX: 1040 },   // 블루 — 중앙
+  { ...buildDumpTruck(0xc23838), z: -200, homeX: 1500, pourX: 1040 },  // 레드 — 뒤쪽
+  { ...buildDumpTruck(0xd4a828), z: 150, homeX: 1500, pourX: 1040 }    // 옐로우 — 앞쪽-중앙
+];
 
 // ================================================
 //  씬 10 — 침출수 발생·집적
@@ -1046,11 +1227,16 @@ function setWhTag(on) { whTagOn = on; if (on) updateWhTag(); whTagEl.style.opaci
 //  씬 13 — 물류창고 하중 → 침하 → 라이너 찢어짐 → 오염수 누출(나무뿌리 양상)
 // ================================================
 // 하중 화살표 (창고 위에서 아래로 누르는 빨간 화살표) — 창고 그룹에 자식으로 두어 침하 시 함께 이동
-const matLoadArrow = new THREE.MeshStandardMaterial({ color: 0xff3030, emissive: 0xff3030, emissiveIntensity: 0.6 });
+// 큰 하중을 표현하기 위해 굵고 강렬하게
+const matLoadArrow = new THREE.MeshStandardMaterial({ color: 0xff2020, emissive: 0xff1a1a, emissiveIntensity: 1.1 });
 function makeLoadArrow(dx, dz) {
   const a = new THREE.Group();
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 36, 10), matLoadArrow); shaft.position.y = 18; a.add(shaft);
-  const head = new THREE.Mesh(new THREE.ConeGeometry(10, 22, 10), matLoadArrow); head.position.y = -11; head.rotation.x = Math.PI; a.add(head);
+  // 굵은 축 (radius 4→11, height 36→70)
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(11, 11, 70, 14), matLoadArrow);
+  shaft.position.y = 35; a.add(shaft);
+  // 크고 뾰족한 head (radius 10→26, height 22→46)
+  const head = new THREE.Mesh(new THREE.ConeGeometry(26, 46, 14), matLoadArrow);
+  head.position.y = -23; head.rotation.x = Math.PI; a.add(head);
   a.position.set(WH_X + dx, WH_Y + 12 + WH_H + 44, WH_Z + dz);
   return a;
 }
@@ -1318,6 +1504,14 @@ function resetWorld() {
   g_digClip.constant = GROUND + 8;        // 셀 토사 가득(굴착 전). 윗면이 클립경계에 걸려 투명해지지 않도록 살짝 위
   g_dig.exc.visible = false; poseExc(...POSE.rest);
   setLayerTags(false);
+  // 씬1·2 초기 상태 — 바다 보임, 매립층은 아직 없음
+  sea.visible = true; waterCol.visible = true;
+  gsap.set(surfMat, { opacity: 0.9 }); gsap.set(seaMat, { opacity: 0.82 });
+  fillState.grow = 0; updateFill();
+  tempFill.visible = true;
+  g_fillL.visible = false; g_fillR.visible = false;
+  g_pitFill.visible = false; g_backFill.visible = false;
+  document.getElementById('ltFill').innerHTML = '바다';
   // 씬7 진공압밀 리셋
   g_stit.rig.visible = false; gsap.set(g_stit.mandrelGroup.position, { y: 0 });
   g_vdrains.forEach(o => { o.grow = 0; o.d.visible = false; o.w.visible = false; gsap.set(o.d.scale, { y: 0 }); gsap.set(o.w.scale, { y: 0 }); gsap.set(o.d.position, { y: VD_BOT }); });
@@ -1327,6 +1521,7 @@ function resetWorld() {
   g_memb.visible = false; setMembraneSag(0); membClip.constant = -MEMB_HW - 14;
   g_seals.forEach(m => { m.visible = false; gsap.set(m.scale, { y: 1 }); });
   g_pump.visible = false; g_hose.visible = false; g_outlet.visible = false; g_dtank.visible = false; gsap.set(g_dischargeWater.scale, { y: 0 });
+  g_hoseWater.visible = false; gsap.set(g_hoseWater.scale, { y: 0 });
   g_atm.visible = false; gsap.set(g_atm.scale, { y: 1 });
   vacuuming = false; g_vac.kpa = 0; g_vacSet.v = 0; applyVacSettle();
   vacGaugeEl.style.opacity = '0'; levelTag.style.opacity = '0';
@@ -1337,6 +1532,7 @@ function resetWorld() {
   g_waste.forEach(m => m.visible = false); g_wasteClip.constant = WASTE_BOT - 8;
   g_debris.visible = false;
   g_comp.visible = false;
+  g_trucks.forEach(t => { t.g.visible = false; t.g.position.set(t.homeX, GROUND, t.z); t.bedGroup.rotation.z = 0; });
   // 씬10 리셋
   collecting = false;
   g_rainPts.visible = false; gsap.set(g_rainPts.material, { opacity: 0.98 }); g_leachPool.visible = false; g_poolClip.constant = POOL_BOT - 6;
@@ -1355,7 +1551,7 @@ function resetWorld() {
   setWhTag(false);
   // 씬13 리셋 — 하중·침하
   g_loadArrows.visible = false;
-  gsap.set(matLoadArrow, { emissiveIntensity: 0.6 });
+  gsap.set(matLoadArrow, { emissiveIntensity: 1.1 });
   g_cracks.visible = false;
   gsap.set(g_cracks.position, { y: 0 });
   g_cracks.children.forEach(c => gsap.set(c.scale, { x: 1, y: 1, z: 1 }));
@@ -1368,23 +1564,46 @@ function resetWorld() {
   // 캡 침하량 리셋 → top 정점 원상복귀
   whSettle.v = 0; applyWHSettle();
   lensWaterP.p = 0;
+  whLensActive = false; whLensState.p = 0;
   cap.innerHTML = ''; gsap.set(cap, { opacity: 0 });
 }
 function play() {
   resetWorld();
   const M = gsap.timeline();
 
-  // 지층 명칭 라벨: 시작부터 계속 표시
+  // 지층 명칭 라벨: 시작부터 계속 표시 (씬1은 최상단이 '바다')
   M.call(() => setLayerTags(true), null, 0.4);
-  // 씬 6 — 부지 굴착: 굴착기가 매립 셀(사다리꼴)을 위→아래로 파냄
-  say(M, 0.2, '<span class="hl">준설토로 매립한 땅</span>을 굴착해 <span class="hl">폐기물 매립 셀</span>을 만듭니다.');
+
+  // ================= 씬 1 — 바다 =================
+  say(M, 0.2, '원래 이곳은 <span class="hl">바다</span>였습니다.');
+  M.to({}, { duration: 3.4 });   // 파도 감상
+
+  // ================= 씬 2 — 준설토 매립 (바다를 준설토로 메움) =================
+  const s2 = 3.6;
+  say(M, s2, '바다를 <span class="hl">준설토로 메워</span> 땅을 만듭니다.');
+  M.to(fillState, { grow: 1, duration: 4.4, ease: 'power1.inOut', onUpdate: updateFill }, s2 + 0.2);
+  // 매립토가 수면을 넘어서면 바닷물 사라짐
+  M.to([surfMat, seaMat], { opacity: 0, duration: 1.4, ease: 'power1.in' }, s2 + 3.6);
+  M.add(() => { sea.visible = false; waterCol.visible = false; }, s2 + 5.0);
+  // 매립 완료 → 최상단 라벨 '바다' → '매립층(준설토)'로 교체 + 임시 fill → 정식 fill 지오메트리로 전환
+  M.add(() => {
+    document.getElementById('ltFill').innerHTML = '매립층<small>(준설토)</small>';
+    tempFill.visible = false;
+    g_fillL.visible = true; g_fillR.visible = true;
+    g_pitFill.visible = true; g_backFill.visible = true;
+  }, s2 + 4.8);
+
+  // ================= 씬 6 — 부지 굴착 =================
+  // 씬1·2 총 소요 시간(약 10초) 이후 굴착 시작
+  const SS = 10.0;
+  say(M, SS + 0.2, '<span class="hl">준설토로 매립한 땅</span>을 굴착해 <span class="hl">폐기물 매립 셀</span>을 만듭니다.');
   // 굴착기는 우측 단단한 지반(벤치, x>900) 위에 서서 팔만 셀 안으로 뻗어 굴착
   const BENCH_X = 1060;
-  M.add(() => { g_dig.exc.visible = true; }, 0);
-  M.fromTo(g_dig.exc.position, { x: 1340, y: GROUND, z: FRONT }, { x: BENCH_X, y: GROUND, z: FRONT, duration: 1.2, ease: 'power2.out' }, 0.2);
+  M.add(() => { g_dig.exc.visible = true; }, SS);
+  M.fromTo(g_dig.exc.position, { x: 1340, y: GROUND, z: FRONT }, { x: BENCH_X, y: GROUND, z: FRONT, duration: 1.2, ease: 'power2.out' }, SS + 0.2);
 
   // 3회 굴착 사이클 — 사용자 계획: 1) 매립층 절반 2) 나머지 매립층 + 연약점토층 일부 3) 최종
-  const CYC = 1.9, cyc0 = 1.7;
+  const CYC = 1.9, cyc0 = SS + 1.7;
   const digTipX = BENCH_X - 470;
   const digLevels = [-60, -220, PIT_BOT];   // 사이클별 목표 y (매립층 절반=-60, 연약점토층 일부=-220, 최종=-290)
   for (let i = 0; i < 3; i++) {
@@ -1453,101 +1672,122 @@ function play() {
   M.add(() => { g_seals.forEach(m => m.visible = true); }, s7c + 1.5);
   g_seals.forEach((m, i) => M.fromTo(m.scale, { y: 0.05 }, { y: 1, duration: 0.5, ease: 'back.out(1.6)' }, s7c + 1.5 + i * 0.12));
 
-  // ④ 진공펌프 가동 — 대기압이 균일하게 재하
+  // ④ 진공펌프 가동 — 대기압이 균일하게 재하 (진공압 천천히 상승)
   const s7d = s7c + 2.7;
   say(M, s7d, '<span class="hl">진공펌프</span>로 공기를 빼면 <span class="hl">대기압</span>이 지반을 균일하게 누릅니다.');
   M.add(() => { g_pump.visible = true; g_hose.visible = true; g_outlet.visible = true; g_dtank.visible = true; g_atm.visible = true; vacuuming = true; }, s7d);
   M.from(g_pump.position, { y: GROUND + 80, duration: 0.6, ease: 'back.out(1.4)' }, s7d);
   M.fromTo(g_atm.scale, { y: 0.01 }, { y: 1, duration: 0.6, ease: 'back.out(1.5)' }, s7d + 0.2);
-  M.to(g_vac, { kpa: -80, duration: 2.8, ease: 'power2.inOut' }, s7d + 0.3);
+  // 진공압 0 → -80 kPa 를 6초에 걸쳐 천천히 (기존 2.8초 → 6.0초, sine.inOut로 부드럽게)
+  M.to(g_vac, { kpa: -80, duration: 6.0, ease: 'sine.inOut' }, s7d + 0.3);
 
-  // ⑤ 간극수 배출 — PBD가 먼저 차오른 뒤 → 가로관 좌→우 흐름 → 펌프 배출탱크
-  const s7e = s7d + 1.4;
+  // ⑤ 간극수 배출 — 진공압 -40 kPa 도달 시점(약 s7d+3.3)에 다음 자막 + 렌즈 + PBD 물 상승 시작
+  const s7e = s7d + 3.3;   // 진공압이 절반(-40 kPa) 넘긴 후 배수 표현 시작
   say(M, s7e, '간극수가 <span class="hl">PBD를 타고 올라온 뒤</span> 집수관을 따라 펌프로 배출됩니다.');
-  M.add(() => { g_vdrains.forEach(o => o.w.visible = true); g_vcollWater.visible = true; }, s7e);
+  M.add(() => { g_vdrains.forEach(o => o.w.visible = true); g_vcollWater.visible = true; g_hoseWater.visible = true; }, s7e);
   g_vdrains.forEach((o, i) => M.fromTo(o.w.scale, { y: 0 }, { y: 1, duration: 2.2, ease: 'none' }, s7e + 0.2 + i * 0.06));   // ① PBD 상승(먼저)
-  M.fromTo(g_vcollWater.scale, { x: 0 }, { x: 1, duration: 2.2, ease: 'none' }, s7e + 3.0);                                  // ② PBD 완료 후 가로관 좌→우
-  M.fromTo(g_dischargeWater.scale, { y: 0 }, { y: 0.92, duration: 4.0, ease: 'none' }, s7e + 5.2);                          // ③ 배출탱크 차오름
-  M.fromTo(lensWaterP, { p: 0 }, { p: 1, duration: 7.5, ease: 'none' }, s7e + 0.2);                                          // 렌즈 미시: 간극수 PBD 배출(선형)
+  M.fromTo(g_vcollWater.scale, { x: 0 }, { x: 1, duration: 2.2, ease: 'none' }, s7e + 3.0);                                  // ② 가로관 좌→우
+  M.fromTo(g_hoseWater.scale, { y: 0 }, { y: 1, duration: 2.4, ease: 'power1.in' }, s7e + 5.2);                              // ③ 호스로 물 상승(펌프까지)
+  M.fromTo(g_dischargeWater.scale, { y: 0 }, { y: 0.92, duration: 4.0, ease: 'none' }, s7e + 7.4);                          // ④ 배출탱크 차오름
+  M.fromTo(lensWaterP, { p: 0 }, { p: 1, duration: 9.5, ease: 'none' }, s7e + 0.2);                                          // 렌즈 미시: 간극수 PBD 배출(선형)
 
   // ⑥ 압밀·침하 (멤브레인 sag + 레벨 하강)
-  M.to(g_vacSet, { v: VAC_SET_MAX, duration: 7.5, ease: 'sine.inOut', onUpdate: applyVacSettle }, s7e + 1.0);
-  say(M, s7e + 9.4, '물이 빠지며 지반이 <span class="hl">압밀·침하</span>되어 단단해집니다.');
+  M.to(g_vacSet, { v: VAC_SET_MAX, duration: 9.5, ease: 'sine.inOut', onUpdate: applyVacSettle }, s7e + 1.0);
+  say(M, s7e + 11.4, '물이 빠지며 지반이 <span class="hl">압밀·침하</span>되어 단단해집니다.');
 
   // ================= 씬 8 — 차수 라이너 시스템 =================
-  const s8 = s7e + 11.0;
+  const s8 = s7e + 13.0;
   // 진공압밀 장비 철거(멤브레인·펌프·호스·배출탱크·대기압 화살표·집수관·배수층)
   M.add(() => {
     g_memb.visible = false; g_pump.visible = false; g_hose.visible = false; g_outlet.visible = false;
     g_dtank.visible = false; g_atm.visible = false; g_vcoll.visible = false; g_vcollWater.visible = false;
+    g_hoseWater.visible = false;
     g_blanket.visible = false; g_vdrains.forEach(o => o.w.visible = false); g_seals.forEach(m => m.visible = false);
     vacuuming = false;
   }, s8);
-  // 연약점토층에 박았던 PBD를 하나씩 인발 → 하늘로 사라짐
-  say(M, s8, '지반개량을 마친 <span class="hl">배수재(PBD)</span>를 하나씩 뽑아냅니다.');
-  g_vdrains.forEach((o, i) => {
-    const at = s8 + 0.4 + i * 0.3;
-    M.to(o.d.position, { y: 540, duration: 0.6, ease: 'power1.in' }, at);
-    M.add(() => { o.d.visible = false; }, at + 0.6);
+  // 연약점토층에 박았던 PBD를 한꺼번에 인발 → 하늘로 사라짐 (동시 상승)
+  say(M, s8, '지반개량을 마친 <span class="hl">배수재(PBD)</span>를 제거합니다.');
+  g_vdrains.forEach((o) => {
+    M.to(o.d.position, { y: 540, duration: 0.7, ease: 'power1.in' }, s8 + 0.4);
+    M.add(() => { o.d.visible = false; }, s8 + 1.1);
   });
-  const pbdEnd = s8 + 0.4 + VN * 0.3 + 0.7;
+  const pbdEnd = s8 + 1.7;
   say(M, pbdEnd, '개량된 지반 위에 <span class="hl">차수 라이너 시스템</span>을 시공합니다.');
-  // 4개 층을 바닥→위로 순차 적층
-  let lt = pbdEnd + 1.2;
+  // 4개 층을 바닥→위로 순차 적층 (자막 1초 더 유지)
+  let lt = pbdEnd + 2.2;
   g_liner.forEach((L, idx) => {
     say(M, lt, L.name);
     M.add(() => { L.layer.m.visible = true; L.layer.bm.visible = true; }, lt);
     M.fromTo(L.layer.clip, { constant: PIT_BOT - 6 }, { constant: GROUND + 60, duration: 1.1, ease: 'power1.inOut' }, lt);
-    if (idx === 3) { M.add(() => { g_leachPipe.visible = true; }, lt + 0.7); M.from(g_leachPipe.scale, { x: 0.01, y: 0.01, duration: 0.5, ease: 'back.out(1.5)' }, lt + 0.7); }
+    if (idx === 3) {
+      // 배수 자갈층 시공과 함께 오염수처리시설 + 흡입관(파이프·플랜지·노즐) 모두 설치
+      M.add(() => {
+        g_treatPlant.visible = true;
+        g_intakePipe.visible = true; g_pipeFlange.visible = true; g_intakeNozzle.visible = true;
+        setTfTag(true);
+      }, lt + 0.9);
+      M.fromTo(g_treatPlant.scale, { y: 0.02, x: 1, z: 1 }, { y: 1, duration: 0.8, ease: 'back.out(1.4)' }, lt + 0.9);
+    }
     lt += 1.9;
   });
   say(M, lt + 0.2, '폐기물을 안전하게 가두는 <span class="hl">차수 라이너</span>가 완성됐습니다.');
 
-  // ================= 씬 9 — 폐기물 단계 매립 + 일일복토 =================
+  // ================= 씬 9 — 폐기물 단계 매립 (색상·위치 다른 덤프트럭 4대가 순차 진입) =================
   const s9 = lt + 2.2;
   say(M, s9, '라이너 위에 폐기물을 <span class="hl">층층이 매립</span>합니다.');
-  M.add(() => { g_waste.forEach(m => m.visible = true); g_debris.visible = true; g_comp.visible = true; }, s9);
-  let wt = s9 + 1.2;
+  M.add(() => {
+    g_waste.forEach(m => m.visible = true); g_debris.visible = true;
+    // 4대 모두 초기 상태: 홈(우측 화면 밖)에서 대기, 짐칸 수평
+    g_trucks.forEach(t => {
+      t.g.position.set(t.homeX, GROUND, t.z);
+      t.bedGroup.rotation.z = 0;
+      t.g.visible = false;
+    });
+  }, s9);
+  const CYCLE = 3.0;
+  let wt = s9 + 1.0;
   for (let i = 0; i < NLIFT; i++) {
-    const y0 = WASTE_BOT + i * liftH, y1 = WASTE_BOT + (i + 1) * liftH;
-    M.to(g_wasteClip, { constant: y1 + 4, duration: 1.4, ease: 'power1.inOut' }, wt);   // 한 층 + 일일복토 채움
-    M.set(g_comp.position, { x: -320, z: FRONT - 130 }, wt);                              // 새 층 위에서 횡단 시작
-    M.fromTo(g_comp.position, { y: y0 }, { y: y1, duration: 1.4, ease: 'power1.inOut' }, wt);   // 차오르는 표면에 붙어 상승(공중부양 방지)
-    M.to(g_comp.position, { x: 320, duration: 1.4, ease: 'sine.inOut' }, wt);             // 다지며 횡단
-    if (i === 1) say(M, wt, '매 층마다 <span class="hl">일일 복토</span>로 덮어 다집니다.');
-    wt += 1.8;
+    const t = g_trucks[i];    // i번째 트럭 (색상·z 서로 다름)
+    const y1 = WASTE_BOT + (i + 1) * liftH;
+    const at = wt + i * CYCLE;
+    // ① 이번 사이클 트럭만 등장 (진입 시점에 visible 활성)
+    M.add(() => { t.g.visible = true; t.g.position.set(t.homeX, GROUND, t.z); t.bedGroup.rotation.z = 0; }, at);
+    // ② 진입 (홈 → pour, 0.5s)
+    M.to(t.g.position, { x: t.pourX, duration: 0.5, ease: 'power2.out' }, at);
+    // ③ 짐칸 기울임 (0.4s)
+    M.to(t.bedGroup.rotation, { z: 0.6, duration: 0.4, ease: 'power2.inOut' }, at + 0.5);
+    // ④ 폐기물 매립층 한 칸 채움 (기울인 상태에서 1.4s)
+    M.to(g_wasteClip, { constant: y1 + 4, duration: 1.4, ease: 'power1.inOut' }, at + 0.9);
+    // ⑤ 짐칸 원위치 (0.3s)
+    M.to(t.bedGroup.rotation, { z: 0, duration: 0.3, ease: 'power2.inOut' }, at + 2.3);
+    // ⑥ 퇴장 (pour → 홈, 0.4s), 완료 후 hide
+    M.to(t.g.position, { x: t.homeX, duration: 0.4, ease: 'power2.in' }, at + 2.6);
+    M.add(() => { t.g.visible = false; }, at + 3.0);
+    if (i === 1) say(M, at + 0.9, '매 층마다 <span class="hl">일일 복토</span>로 덮어 다집니다.');
   }
-  M.add(() => { g_comp.visible = false; }, wt);
+  wt = s9 + 1.0 + NLIFT * CYCLE;
   say(M, wt + 0.3, '폐기물이 <span class="hl">계획고까지</span> 안정적으로 매립됐습니다.');
 
   // ================= 씬 10 — 침출수 발생·집적 =================
   const s10 = wt + 2.2;
-  say(M, s10, '매립이 끝나도 <span class="hl">빗물</span>이 스며들며 <span class="hl">오염수</span>가 차오르기 시작합니다.');
+  say(M, s10, '매립을 하면서 <span class="hl">빗물</span>이 스며들며 <span class="hl">오염수</span>가 생성됩니다.');
   M.add(() => { g_rainPts.visible = true; g_leachPool.visible = true; collecting = true; }, s10);
   // 비 시작과 동시에 풀 충전 시작 (synchronized)
   const POOL_FILL = 9.0, POOL_FULL = POOL_BOT + 2 * (POOL_MAX - POOL_BOT) / 3;   // 기존의 2배 높이까지
   M.fromTo(g_poolClip, { constant: POOL_BOT - 6 }, { constant: POOL_FULL, duration: POOL_FILL, ease: 'none', immediateRender: false }, s10);
   const s10b = s10 + 3.2;
-  say(M, s10b, '빗물이 폐기물층을 지나며 <span class="hl">오염수(침출수)</span>로 바뀌어,');
+  say(M, s10b, '생성된 오염수는 <span class="hl">차수층</span>에 의해 밖으로 새지 않게 가둬집니다.');
   const s10c = s10 + 6.4;
-  say(M, s10c, '<span class="hl">차수층 위에 오염수가</span> 점점 차오릅니다.');
+  say(M, s10c, '오염수의 수위는 <span class="hl">5M 수준</span>으로 관리하며,');
   // 풀이 가득 차면 비가 멈춤
   const rainStop = s10 + POOL_FILL;
   M.add(() => { collecting = false; gsap.to(g_rainPts.material, { opacity: 0, duration: 1.0, onComplete: () => { g_rainPts.visible = false; } }); }, rainStop);
-  say(M, rainStop + 0.2, '오염수가 가득 차 <span class="hl">밖으로 새지 않게 가둬집니다.</span>');
+  say(M, rainStop + 0.2, '<span class="hl">오염수처리시설</span>을 통해 정화 후 외부로 반출됩니다.');
 
-  // ================= 씬 11 — 오염수 처리시설: 시설+흡입관 동시 설치 → 오염수 상승·풀 배수 =================
+  // ================= 씬 11 — 오염수 처리: 흡입 시작 → 풀 배수 (씬 10 자막 "오염수처리시설을 통해 정화..." 지속) =================
   const s11 = rainStop + 2.2;
-  // 시설 + 흰색 흡입관(왼쪽 탱크에 연결) 동시 설치
-  say(M, s11, '부지 좌측에 <span class="hl">오염수 처리시설</span>과 <span class="hl">흰색 흡입관</span>을 함께 설치합니다.');
-  M.add(() => {
-    g_treatPlant.visible = true; g_treatPlant.scale.set(1, 1, 1);
-    g_intakePipe.visible = true; g_pipeFlange.visible = true; g_intakeNozzle.visible = true;
-    setTfTag(true);
-  }, s11);
-  // 오염수가 흰 관을 따라 위로 쭉 올라감 + 풀 수위는 그만큼 내려감
+  // 씬 11 자막 제거 — 씬 10의 "오염수처리시설을 통해 정화 후 외부로 반출됩니다" 자막이 씬 12까지 유지되도록
   const s11c = s11 + 2.2;
-  say(M, s11c, '오염수가 <span class="hl">흰색 관을 따라</span> 처리시설로 빨려 올라가며, 풀의 수위가 낮아집니다.');
   M.add(() => { g_intakeWater.visible = true; }, s11c);
   const PIPE_RISE = 4.0;
   M.fromTo(g_intakeWater.scale, { y: 0 }, { y: 1, duration: PIPE_RISE, ease: 'power1.in' }, s11c);
@@ -1557,19 +1797,19 @@ function play() {
   // ================= 씬 12 — 최종복토 + 우측 물류창고 =================
   // 처리시설·파이프·물기둥은 그대로 유지(visible 변경 없음)
   const s12 = s11c + PIPE_RISE + 2.4;
-  say(M, s12, '<span class="hl">최종복토층</span>으로 폐기물매립층과 준설토매립층 전체를 덮어 마감합니다.');
+  say(M, s12, '폐기물매립을 종료하기 위해 <span class="hl">최종복토</span> 합니다.');
   M.add(() => { g_cap.visible = true; setCapTag(true); }, s12);
   M.fromTo(g_capClip, { constant: CAP_BOT - 4 }, { constant: CAP_TOP + 8, duration: 2.4, ease: 'power1.inOut' }, s12);
   const s12b = s12 + 3.4;
-  say(M, s12b, '셀 우측 부지에는 <span class="hl">물류창고</span>를 건축합니다.');
+  say(M, s12b, '최종복토 후 해당부지는 <span class="hl">물류시설</span>로 사용이 가능합니다.');
   M.add(() => { g_warehouse.visible = true; g_warehouse.scale.set(1, 1, 1); setWhTag(true); }, s12b);
   M.fromTo(g_warehouse.scale, { y: 0.02 }, { y: 1, duration: 0.9, ease: 'back.out(1.3)' }, s12b);
-  say(M, s12b + 3.2, '<span class="hl">그린파워</span> 매립이 완성됐습니다.');
+  say(M, s12b + 3.2, '<span class="hl">물류시설</span>로 부지를 사용하더라도,');
 
   // 최종복토 직후 ~ 물류창고 직후: 시간이 흘러 다시 비가 내리고 오염수가 부분적으로 차오름
   const s12c = s12b + 4.6;
   const POOL_PARTIAL = POOL_BOT + (POOL_FULL - POOL_BOT) * 0.55;
-  say(M, s12c, '<span class="hl">시간이 지나며</span> 매립지 내부에 다시 오염수가 차오릅니다.');
+  say(M, s12c, '<span class="hl">빗물</span>에 의해 매립지 내부에 오염수는 생성됩니다.');
   M.add(() => { g_rainPts.visible = true; g_leachPool.visible = true; collecting = true; gsap.set(g_rainPts.material, { opacity: 0.98 }); }, s12c);
   M.fromTo(g_poolClip, { constant: POOL_BOT - 6 }, { constant: POOL_PARTIAL, duration: 5.0, ease: 'none', immediateRender: false }, s12c);
   const rainStop2 = s12c + 5.0;
@@ -1577,9 +1817,11 @@ function play() {
 
   // ================= 씬 13 — 물류창고 하중 → 침하 (hero3d 성토 침하 패턴 참조: sine.inOut 점진) =================
   const s13 = rainStop2 + 1.6;
-  say(M, s13, '시간이 지나며 <span class="hl">물류창고의 하중</span>이 매립층에 누적됩니다.');
-  M.add(() => { g_loadArrows.visible = true; }, s13);
-  M.to(matLoadArrow, { emissiveIntensity: 1.4, duration: 0.5, ease: 'sine.inOut', repeat: -1, yoyo: true }, s13);
+  say(M, s13, '시간이 지나면서 <span class="hl">물류시설의 하중</span>이 차수층 아래 원지반에 누적됩니다.');
+  M.add(() => { g_loadArrows.visible = true; whLensActive = true; whLensState.p = 0; }, s13);
+  M.to(matLoadArrow, { emissiveIntensity: 2.4, duration: 0.4, ease: 'sine.inOut', repeat: -1, yoyo: true }, s13);
+  // 렌즈: 원지반 입자 침하 애니메이션 (s13 자막 지속 동안 서서히 진행)
+  M.fromTo(whLensState, { p: 0 }, { p: 1, duration: 3.0, ease: 'sine.inOut' }, s13 + 0.3);
 
   // 침하 — hero3d 성토 침하 패턴(settleBump + applySettle)을 따라 캡·복토·라이너·연약점토층 정점이 국부 변위
   const s13b = s13 + 3.2;
@@ -1589,8 +1831,8 @@ function play() {
 
   // 차수층 조각조각 파단 — 갭이 라이너 안에서 천천히 페이드인 (파편 사이로 흙이 배어나오는 느낌)
   const s13c = s13b + 2.5;
-  say(M, s13c, '<span class="hl">차수층이 파편처럼 부서지며</span> 사이로 흙이 채워집니다.');
-  M.add(() => { g_cracks.visible = true; }, s13c);
+  say(M, s13c, '원지반의 침하로 인해 <span class="hl">차수층이 찢어지게</span> 됩니다.');
+  M.add(() => { g_cracks.visible = true; whLensActive = false; }, s13c);   // 렌즈 종료 (침하 완료)
   g_cracks.children.forEach((c, i) => {
     const at = s13c + i * 0.55;
     M.fromTo(c.material, { opacity: 0 }, { opacity: 1, duration: 1.6, ease: 'power1.out' }, at);
@@ -1599,7 +1841,7 @@ function play() {
 
   // 오염수 실시간 흐름: pool → crack 채움 → drip 하강 → 기반암 밴드 → 좌우 확산
   const s13d = s13c + 3.5;
-  say(M, s13d, '<span class="hl">쌓인 오염수가 갈라진 틈을 채우며 흘러내려</span> 연약점토층으로 퍼져나갑니다.');
+  say(M, s13d, '쌓인 오염수가 <span class="hl">차수층의 찢어진 곳</span>을 통해 외부로 누출됩니다.');
   M.add(() => { g_plume.visible = true; }, s13d);
 
   const P = g_plume.userData;
@@ -1635,6 +1877,7 @@ let timeline = play();
 // ---------- 렌더 루프 ----------
 const clock = new THREE.Clock();
 function frame() {
+  updateSea(clock.getElapsedTime());   // 씬1·2 파도 애니메이션
   if (layerTagsOn) updateLayerTags();
   if (vacuuming) {
     vacGaugeEl.style.opacity = '1'; drawVacGauge(g_vac.kpa);
@@ -1650,6 +1893,11 @@ function frame() {
     // 렌즈(미시 단면) + 콜아웃 지시선
     lensWrap.style.opacity = '1'; callout.style.opacity = '1'; updateCallout();
     drawLens(Math.min(1, g_vacSet.v / VAC_SET_MAX), Math.min(1, lensWaterP.p), clock.getElapsedTime());
+  } else if (whLensActive) {
+    // 씬13: 물류시설 아래 원지반 침하 렌즈
+    lensWrap.style.opacity = '1'; callout.style.opacity = '1'; updateCallout(coSrcWh);
+    drawWhLens(Math.min(1, whLensState.p), clock.getElapsedTime());
+    vacGaugeEl.style.opacity = '0'; levelTag.style.opacity = '0';
   } else { vacGaugeEl.style.opacity = '0'; levelTag.style.opacity = '0'; lensWrap.style.opacity = '0'; callout.style.opacity = '0'; }
   if (collecting) { updateRain(); }
   if (tfTagOn) updateTfTag();
@@ -1665,14 +1913,16 @@ addEventListener('resize', resize); resize();
 
 // ---------- 컨트롤 / 씬 내비게이션 ----------
 const SCENES = [
-  { n: '씬 6 · 부지 굴착', t: 0 },
-  { n: '씬 7 · 진공압밀', t: 9.8 },
-  { n: '씬 8 · 차수 라이너', t: 36.0 },
-  { n: '씬 9 · 폐기물 매립', t: 50.2 },
-  { n: '씬 10 · 침출수 집적', t: 60.8 },
-  { n: '씬 11 · 오염수 처리', t: 72.0 },
-  { n: '씬 12 · 최종복토·창고', t: 81.0 },
-  { n: '씬 13 · 침하·오염수 누출', t: 95.0 }
+  { n: '씬 1 · 바다', t: 0 },
+  { n: '씬 2 · 준설토 매립', t: 3.6 },
+  { n: '씬 6 · 부지 굴착', t: 10.0 },
+  { n: '씬 7 · 진공압밀', t: 19.8 },
+  { n: '씬 8 · 차수 라이너', t: 49.9 },
+  { n: '씬 9 · 폐기물 매립', t: 63.6 },
+  { n: '씬 10 · 침출수 집적', t: 78.8 },
+  { n: '씬 11 · 오염수 처리', t: 90.0 },
+  { n: '씬 12 · 최종복토·창고', t: 99.0 },
+  { n: '씬 13 · 침하·오염수 누출', t: 113.0 }
 ];
 const sceneLabel = document.getElementById('scenelabel');
 const pauseBtn = document.getElementById('pause');
